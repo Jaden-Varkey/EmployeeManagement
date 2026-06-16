@@ -1,0 +1,17 @@
+# Build results
+[Bb]in/
+[Oo]bj/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+
+# Claude Code local files
+.claude/
+
+# Rider
+.idea/
+
+# Local reference material — keep out of version control
+sample_data/
