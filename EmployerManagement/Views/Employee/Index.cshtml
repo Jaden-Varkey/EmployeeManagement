@@ -1,5 +1,5 @@
-@{
-    Layout = null;
+﻿@{
+    Layout = null; // This ensures we don't rely on a broken layout file
 }
 
 <!DOCTYPE html>
@@ -8,9 +8,588 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Employee Management</title>
+
+    <!-- Bootstrap 5 CSS for styling and centralizing -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
+    <!-- DataTables CSS -->
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css" />
+    <link rel="stylesheet" href="https://cdn.datatables.net/rowgroup/1.4.1/css/rowGroup.dataTables.min.css" />
+    <!-- jQuery UI-->
+    <link rel="stylesheet" href="https://code.jquery.com/ui/1.13.2/themes/base/jquery-ui.css">
+
+    <style>
+            /* Custom CSS to center the form on the screen */
+            body {
+                background-color: #f4f7f6;
+                padding-top: 40px;
+                padding-bottom: 40px;
+            }
+
+            .main-container {
+                max-width: 1400px;
+                margin: 0 auto; /* This centralizes the div */
+                background: #ffffff;
+                padding: 30px;
+                border-radius: 10px;
+                box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            }
+
+            .child-panel {
+                background-color: #e9ecef;
+                border-radius: 8px;
+                padding: 15px;
+                margin: 10px 0;
+                box-shadow: inset 0 2px 4px rgba(0,0,0,0.05);
+            }
+
+            .details-control {
+                cursor: pointer;
+                font-weight: bold;
+                color: #0d6efd;
+                text-align: center;
+            }
+    </style>
 </head>
 <body>
-    <h1>Employee Management</h1>
-    <!-- Blueprint placeholder — the entry grid and employee directory are built out in later commits. -->
+
+    <div class="main-container">
+        <!-- Input Form Section -->
+        <div class="card shadow-sm mb-5 border-primary">
+            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                <h4 class="mb-0">Batch Employee Entry</h4>
+            </div>
+            <div class="card-body p-2">
+                <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                    <table class="table table-bordered table-sm align-middle" id="bulkEntryTable">
+                        <thead class="table-light sticky-top">
+                            <tr>
+                                <th style="min-width: 150px;">Full Name</th>
+                                <th style="min-width: 200px;">Phone Number</th>
+                                <th style="min-width: 70px;">Age</th>
+                                <th style="min-width: 200px;">Address</th>
+                                <th style="min-width: 140px;">Gender</th>
+                                <th style="min-width: 250px;">Department</th>
+                                <th style="min-width: 130px;">Adm. Date</th>
+                                <th style="min-width: 135px;">Status</th>
+                                <th style="min-width: 50px;"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="d-flex justify-content-between mt-3 px-2 pb-2">
+                    <button type="button" class="btn btn-outline-primary fw-bold" id="btnAddRow">➕ Add Row</button>
+                    <button type="button" class="btn btn-success fw-bold px-5" id="btnSaveBatch">🚀 Save All to Database</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Search Bar Panel -->
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-secondary text-white">
+                <h5 class="mb-0">Search & Filter</h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <label class="form-label fw-bold">Name (Autofill)</label>
+                        <input type="text" id="searchName" class="form-control" placeholder="Start typing name..." />
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label fw-bold">Employee ID</label>
+                        <input type="number" id="searchId" class="form-control" placeholder="ID No." />
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label fw-bold">Date From</label>
+                        <input type="date" id="searchStartDate" class="form-control" />
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label fw-bold">Date To</label>
+                        <input type="date" id="searchEndDate" class="form-control" />
+                    </div>
+                    <div class="col-md-3 d-flex align-items-end gap-2">
+                        <button type="button" id="btnSearch" class="btn btn-primary w-50 fw-bold">Search</button>
+                        <button type="button" id="btnClear" class="btn btn-outline-secondary w-50">Clear</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Data Table Section -->
+        <div class="card shadow-sm">
+            <div class="card-header bg-dark text-white">
+                <h4 class="mb-0">Employee Directory</h4>
+            </div>
+            <div class="card-body">
+                <table id="EmployeeTable" class="table table-striped table-bordered w-100">
+                    <thead>
+                        <tr>
+                            <th>Full Name</th>
+                            <th>Phone</th>
+                            <th>Age</th>
+                            <th>Gender</th>
+                            <th>Department</th>
+                            <th>Admission Date</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- REQUIRED SCRIPTS -->
+    <!-- jQuery MUST be loaded first -->
+    <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+    <!-- jQuery UI -->
+    <script src="https://code.jquery.com/ui/1.13.2/jquery-ui.min.js"></script>
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- DataTables JS -->
+    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+    <script src="https://cdn.datatables.net/rowgroup/1.4.1/js/dataTables.rowGroup.min.js"></script>
+    <!-- SweetAlert2 -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+    <script>
+        $(document).ready(function () {
+
+        // --- ADMISSION DATE CONSTRAINTS ---
+        const today = new Date();
+        const maxFutureDate = new Date();
+        maxFutureDate.setDate(today.getDate() + 30); // 30 days in advance
+        const yyyy = maxFutureDate.getFullYear();
+        const mm = String(maxFutureDate.getMonth() + 1).padStart(2, '0');
+        const dd = String(maxFutureDate.getDate()).padStart(2, '0');
+        const maxDateString = `${yyyy}-${mm}-${dd}`;
+        const currentYyyy = today.getFullYear();
+        const currentMm = String(today.getMonth() + 1).padStart(2, '0');
+        const currentDd = String(today.getDate()).padStart(2, '0');
+        const currentDateString = `${currentYyyy}-${currentMm}-${currentDd}`;
+
+        // --- PHONE VALIDATION RULES (keep in sync with PhoneRules in EmployeeController.cs) ---
+        // India (+91) is airtight (rejects impossible numbers, e.g. starting with 5);
+        // other countries are kept lenient — just a 10-digit number.
+        const PHONE_RULES = {
+            '+1':  { regex: /^\d{10}$/,     msg: 'US/Canada (+1) numbers must be 10 digits.' },
+            '+44': { regex: /^\d{10}$/,     msg: 'UK (+44) numbers must be 10 digits.' },
+            '+91': { regex: /^[6-9]\d{9}$/, msg: 'Indian (+91) numbers must be 10 digits and start with 6, 7, 8, or 9.' },
+            '+61': { regex: /^\d{10}$/,     msg: 'Australian (+61) numbers must be 10 digits.' }
+        };
+
+        // Validates a single entry row. Returns an array of error strings (empty = valid).
+        // This is used INSTEAD of checkValidity() because the real-time input filters call
+        // .val(...) on every keystroke, which clears the input's "dirty" flag and stops
+        // HTML5 minlength/tooShort checks from ever firing (that was the 5-digit-phone bug).
+        function getRowErrors($row) {
+            const errors = [];
+            const name    = ($row.find('.excel-name').val()    || '').trim();
+            const code    =  $row.find('.excel-code').val();
+            const phone   = ($row.find('.excel-phone').val()   || '').trim();
+            const ageRaw  = ($row.find('.excel-age').val()      || '').trim();
+            const address = ($row.find('.excel-address').val()  || '').trim();
+            const gender  =  $row.find('.excel-gender').val();
+            const dept    =  $row.find('.excel-dept').val();
+            const date    =  $row.find('.excel-date').val();
+            const status  =  $row.find('.excel-status').val();
+            const age     = parseInt(ageRaw, 10);
+
+            if (name.length < 2) {
+                errors.push('Full Name is required (at least 2 letters).');
+            } else if (!/^[a-zA-Z\s]+$/.test(name)) {
+                errors.push('Full Name can only contain letters and spaces.');
+            }
+
+            const rule = PHONE_RULES[code];
+            if (!phone) {
+                errors.push('Phone Number is required.');
+            } else if (rule && !rule.regex.test(phone)) {
+                errors.push(rule.msg);
+            }
+
+            if (ageRaw === '' || isNaN(age) || age < 18 || age > 100) {
+                errors.push('Age must be between 18 and 100.');
+            }
+            if (address.length < 10) {
+                errors.push('Address must be at least 10 characters long.');
+            }
+            if (!gender) errors.push('Please select a gender.');
+            if (!dept)   errors.push('Please select a department.');
+            if (!status) errors.push('Please select an employment status.');
+            if (!date) {
+                errors.push('Admission date is required.');
+            } else if (date < '2018-01-01' || date > maxDateString) {
+                errors.push(`Admission date must be between 01/01/2018 and ${dd}/${mm}/${yyyy}.`);
+            }
+
+            return errors;
+        }
+
+        // 1. Initializing Name Autofill
+        $("#searchName").autocomplete({
+        source: '/Employee/AutocompleteNames',
+        minLength: 2
+        });
+
+
+        // 2. Initialize DataTable
+        var expandedGroups = {};    // Tracking which departments are EXPANDED (defaults to all rows collapsed)
+
+        var table = $('#EmployeeTable').DataTable({
+        "paging": false, // Completely removes the multi-page logic
+        "info": false,   // Removes the "Showing 1 to 10 of 50 entries" text
+        "ajax": {
+        "url": "/Employee/GetEmployees",
+        "type": "GET",
+        "datatype": "json",
+        "data": function (d) {
+        d.searchName = $('#searchName').val();
+        d.searchId = $('#searchId').val();
+        d.startDate = $('#searchStartDate').val();
+        d.endDate = $('#searchEndDate').val();
+        }
+        },
+        "columns": [
+        { "data": "fullName" },
+        { "data": "phoneNumber" },
+        { "data": "age" },
+        { "data": "gender" },
+        { "data": "department", "visible": false }, // Hidden, but rowGroup reads it
+        {
+        "data": "admissionDate",
+        "render": function(data) {
+        if (!data) return "";
+        var date = new Date(data);
+        var day = ("0" + date.getDate()).slice(-2);
+        var month = ("0" + (date.getMonth() + 1)).slice(-2);
+        var year = date.getFullYear();
+        return day + "/" + month + "/" + year;
+        }
+        },
+        { "data": "employmentStatus" }
+        ],
+
+        // --- ROW GROUPING LOGIC ---
+        orderFixed: [4, 'asc'],
+        order: [[0, 'asc']],
+        rowGroup: {
+        dataSrc: 'department',
+        startRender: function (rows, group) {
+        var isExpanded = !!expandedGroups[group];
+
+        // Hide or show the rows
+        rows.nodes().each(function (r) {
+        r.style.display = isExpanded ? '' : 'none';
+        });
+
+        var toggleText = isExpanded ? '➖ ' : '➕ ';
+
+        // Instead of building a <tr>, we return a styled <span>.
+        // DataTables will automatically wrap it in a <tr> and perfectly align the colspan!
+        return $('<span/>')
+        .attr('data-name', group) // Tagging it so our click event can find it
+        .css({
+        'cursor': 'pointer',
+        'color': '#0d6efd',    // FIX: Forces Bootstrap primary blue (overrides white text bugs)
+        'font-weight': 'bold',
+        'display': 'block',
+        'text-align': 'left'   // FIX: Ensures the folder stays neatly aligned to the left
+        })
+        .text(toggleText + group + ' (' + rows.count() + ' Employees)');
+        }
+        }
+        });
+
+
+        // 1. Name Fields: Only allow letters (a-z, A-Z) and spaces.
+        // If they type a number or symbol, it instantly replaces it with nothing ('').
+        $('#FullName, #searchName').on('input', function () {
+        $(this).val($(this).val().replace(/[^a-zA-Z\s]/g, ''));
+        });
+
+        // 2. Phone Number & Search ID: Only allow digits (0-9) and limit Phone no. to 10 digits
+        $('#searchId').on('input', function () {
+        $(this).val($(this).val().replace(/[^0-9]/g, ''));
+        });
+
+        $('#PhoneNumber').on('input', function () {
+        let value = $(this).val().replace(/[^0-9]/g, '');
+        if (value.length > 10) {
+        value = value.slice(0, 10); // Cuts off anything past 10 digits
+        }
+        $(this).val(value);
+        });
+
+        // 3. Age Box: Prevent typing 'e', '+', '-', or '.' (which HTML5 number inputs sometimes allow)
+        $('#Age').on('keypress', function (e) {
+        var charCode = (e.which) ? e.which : e.keyCode;
+        if (charCode > 31 && (charCode < 48 || charCode > 57)) {
+        return false; // Blocks the keypress entirely
+        }
+        });
+
+        // Prevent pasting invalid characters into Age
+        $('#Age').on('input', function () {
+        $(this).val($(this).val().replace(/[^0-9]/g, ''));
+        });
+
+
+        $('#EmployeeTable tbody').on('click', 'tr.dtrg-start', function () {
+        var name = $(this).find('span').attr('data-name'); // We find the span we injected above to grab the department name
+        if (name) {
+        expandedGroups[name] = !expandedGroups[name];
+        table.draw(false);
+        }
+        });
+
+        // 3. Search Button Action
+        $('#btnSearch').on('click', function () {
+        table.ajax.reload(); // Reloads table with filters
+        });
+
+        // 4. Clear Button Action
+        $('#btnClear').on('click', function () {
+        $('#searchName').val('');
+        $('#searchId').val('');
+        $('#searchStartDate').val('');
+        $('#searchEndDate').val('');
+        table.ajax.reload(); // Reloads table without filters
+        });
+
+
+        // --- 5. EXCEL-STYLE BULK ENTRY LOGIC ---
+
+        // 1. Template for a blank row
+        // 1. Template for a blank row (FIXED COLUMN ALIGNMENTS)
+        // 1. Template for a blank row
+        function getNewRowHtml() {
+        return `
+        <tr class="excel-row">
+        <td><input type="text" class="form-control form-control-sm excel-name" placeholder="Full Name..." required /></td>
+        <td>
+        <div class="input-group input-group-sm">
+        <select class="form-select excel-code" style="max-width: 90px;">
+        <option value="+1">+1</option>
+        <option value="+44">+44</option>
+        <option value="+91" selected>+91</option>
+        <option value="+61">+61</option>
+        </select>
+        <input type="text" class="form-control excel-phone" placeholder="10 digits..." minlength="10" maxlength="10" required />
+        </div>
+        </td>
+        <td><input type="number" class="form-control form-control-sm excel-age" placeholder="Age..." min="18" max="100" required /></td>
+        <td><input type="text" class="form-control form-control-sm excel-address" placeholder="Enter address..." minlength="10" required /></td>
+        <td>
+        <select class="form-select form-select-sm excel-gender" required>
+        <option value="">Select Gender...</option>
+        <option value="Male">Male</option>
+        <option value="Female">Female</option>
+        <option value="Other">Other</option>
+        </select>
+        </td>
+        <td>
+        <select class="form-select form-select-sm excel-dept" required>
+        <option value="">Select Deptartment</option>
+        <option value="Sales & Business">Sales & Business</option>
+        <option value="Client Relations & Operations">Client Relations & Operations</option>
+        <option value="Software & IT">Software & IT</option>
+        <option value="Marketing">Marketing</option>
+        <option value="HR">HR</option>
+        </select>
+        </td>
+        <td><input type="date" class="form-control form-control-sm excel-date" value="${currentDateString}" min="2018-01-01" max="${maxDateString}" required /></td>
+        <td>
+        <select class="form-select form-select-sm excel-status" required>
+        <option value="">Select Status...</option>
+        <option value="Full time">Full time</option>
+        <option value="Part time">Part time</option>
+        <option value="Freelance">Freelance</option>
+        <option value="Seasonal">Seasonal</option>
+        <option value="Intern">Intern</option>
+        <option value="Other">Other</option>
+        </select>
+        </td>
+        <td class="text-center"><button type="button" class="btn btn-sm btn-danger btn-remove-row">✖</button></td>
+        </tr>
+        `;
+        }
+
+        // 2. Add the first blank row immediately when the page loads
+        $('#bulkEntryTable tbody').append(getNewRowHtml());
+
+        // 3. Add Row Button
+        $('#btnAddRow').on('click', function () {
+
+        let lastRow = $('#bulkEntryTable tbody tr:last');
+
+        if (lastRow.length > 0) {
+        const errors = getRowErrors(lastRow);
+
+        // If the last row is incomplete or invalid, stop and tell the user exactly why
+        if (errors.length > 0) {
+        Swal.fire({
+        title: 'Incomplete Row',
+        html: 'Please fix the last row before adding a new one:<br/><br/>' + errors.join('<br/>'),
+        icon: 'warning'
+        });
+        return;
+        }
+        }
+
+        // If everything is filled out, add the new blank row
+        $('#bulkEntryTable tbody').append(getNewRowHtml());
+        });
+
+        // 4. Remove Row Button (Using event delegation because rows are dynamic)
+        $('#bulkEntryTable').on('click', '.btn-remove-row', function () {
+        // Only allow removing if there is more than 1 row
+        if ($('#bulkEntryTable tbody tr').length > 1) {
+        $(this).closest('tr').remove();
+        } else {
+        Swal.fire('Hold on', 'You must have at least one row.', 'warning');
+        }
+        });
+
+
+        // 5. Apply the Real-Time Input Filters to the DYNAMIC rows
+        // Name: Letters and spaces only
+        $('#bulkEntryTable').on('input', '.excel-name', function () {
+        $(this).val($(this).val().replace(/[^a-zA-Z\s]/g, ''));
+        });
+
+        // Age: Numbers only AND strictly limit to 100
+        $('#bulkEntryTable').on('input', '.excel-age', function () {
+        let value = $(this).val().replace(/[^0-9]/g, '');
+
+        // If they type a number higher than 100, instantly lock it to 100
+        if (parseInt(value) > 100) {
+        value = '100';
+        }
+
+        $(this).val(value);
+        });
+
+        // Phone: Numbers only AND strictly limit to 10 digits
+        $('#bulkEntryTable').on('input', '.excel-phone', function () {
+        let value = $(this).val().replace(/[^0-9]/g, '');
+        if (value.length > 10) {
+        value = value.slice(0, 10); // Instantly cuts off the 11th digit
+        }
+        $(this).val(value);
+        });
+
+        // Immediate phone feedback: flag the field red as soon as the user leaves it (or
+        // switches country code) if it doesn't satisfy that country's rules.
+        function flagPhone($input) {
+        const code = $input.closest('tr').find('.excel-code').val();
+        const rule = PHONE_RULES[code];
+        const value = ($input.val() || '').trim();
+        if (value && rule && !rule.regex.test(value)) {
+        $input.addClass('is-invalid').attr('title', rule.msg);
+        } else {
+        $input.removeClass('is-invalid').removeAttr('title');
+        }
+        }
+
+        $('#bulkEntryTable').on('blur', '.excel-phone', function () {
+        flagPhone($(this));
+        });
+
+        $('#bulkEntryTable').on('change', '.excel-code', function () {
+        flagPhone($(this).closest('tr').find('.excel-phone'));
+        });
+
+        // 6. SAVE ALL LOGIC
+        $('#btnSaveBatch').on('click', function () {
+
+        // Validate every row up-front, and catch duplicate phone numbers within the grid,
+        // so problems are reported clearly here instead of as a generic database rejection.
+        var allErrors = [];
+        var phoneRows = {}; // full phone number -> [row numbers using it]
+
+        $('#bulkEntryTable tbody tr').each(function (index) {
+        var row = $(this);
+        var rowNo = index + 1;
+
+        getRowErrors(row).forEach(function (e) {
+        allErrors.push('Row ' + rowNo + ': ' + e);
+        });
+
+        var fullPhone = row.find('.excel-code').val() + ' ' + (row.find('.excel-phone').val() || '').trim();
+        (phoneRows[fullPhone] = phoneRows[fullPhone] || []).push(rowNo);
+        });
+
+        Object.keys(phoneRows).forEach(function (phone) {
+        var rowsUsing = phoneRows[phone];
+        if (rowsUsing.length > 1) {
+        allErrors.push('Duplicate phone number "' + phone + '" used in rows ' + rowsUsing.join(', ') + '. Each employee must have a unique number.');
+        }
+        });
+
+        if (allErrors.length > 0) {
+        Swal.fire({ title: 'Please fix these issues', html: allErrors.join('<br/>'), icon: 'error' });
+        return;
+        }
+
+        // Build the JSON Array
+        var employeesArray = [];
+        $('#bulkEntryTable tbody tr').each(function () {
+        var row = $(this);
+
+        // Construct the Employee object matching your C# Model
+        var emp = {
+        FullName: row.find('.excel-name').val(),
+        CountryCode: row.find('.excel-code').val(),
+        PhoneNumber: row.find('.excel-code').val() + " " + row.find('.excel-phone').val(),
+        Age: parseInt(row.find('.excel-age').val()),
+        Address: row.find('.excel-address').val(),
+        Gender: row.find('.excel-gender').val(),
+        Department: row.find('.excel-dept').val(),
+        AdmissionDate: row.find('.excel-date').val(),
+        EmploymentStatus: row.find('.excel-status').val()
+        };
+
+        employeesArray.push(emp);
+        });
+
+        // Send to C# Database
+        Swal.fire({
+        title: 'Save Batch?',
+        text: `You are about to save ${employeesArray.length} employees.`,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Yes, Save All!'
+        }).then((result) => {
+        if (result.isConfirmed) {
+        $.ajax({
+        url: '/Employee/SaveMultipleEmployees',
+        type: 'POST',
+        contentType: 'application/json', // CRITICAL for lists
+        data: JSON.stringify(employeesArray),
+        success: function (response) {
+        if (response.success) {
+        Swal.fire('Saved!', response.message, 'success');
+
+        // Reset the grid back to 1 empty row
+        $('#bulkEntryTable tbody').empty();
+        $('#bulkEntryTable tbody').append(getNewRowHtml());
+
+        // Refresh the directory
+        table.ajax.reload();
+        } else {
+        Swal.fire({ title: 'Validation Error!', html: response.message, icon: 'error' });
+        }
+        },
+        error: function () {
+        Swal.fire('Error!', 'An error occurred connecting to the database.', 'error');
+        }
+        });
+        }
+        });
+        });
+        });
+    </script>
 </body>
 </html>
