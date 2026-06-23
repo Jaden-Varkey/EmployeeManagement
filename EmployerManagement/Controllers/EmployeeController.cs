@@ -34,9 +34,20 @@ namespace EmployeeManagement.Controllers
             try
             {
                 var parsed = PhoneUtil.Parse(countryCode + nationalNumber, null);
-                return PhoneUtil.IsValidNumber(parsed)
-                    ? null
-                    : $"The phone number is not valid for {countryCode}.";
+                if (!PhoneUtil.IsValidNumber(parsed))
+                    return $"The phone number is not valid for {countryCode}.";
+
+                // IsValidNumber accepts every assigned number type (including premium-rate
+                // and toll-free). For an employee contact, only allow mobile/landline.
+                var type = PhoneUtil.GetNumberType(parsed);
+                if (type != PhoneNumberType.MOBILE &&
+                    type != PhoneNumberType.FIXED_LINE &&
+                    type != PhoneNumberType.FIXED_LINE_OR_MOBILE)
+                {
+                    return "Please enter a mobile or landline number (premium-rate, toll-free, and special-service numbers aren't allowed).";
+                }
+
+                return null;
             }
             catch (NumberParseException)
             {
