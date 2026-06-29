@@ -11,29 +11,29 @@ namespace EmployeeManagement.Models
         [Required(ErrorMessage = "Full Name is required")]
         [RegularExpression(@"^[a-zA-Z\s]+$", ErrorMessage = "Full Name can only contain letters and spaces.")]
         [Display(Name = "Full Name")]
-        public string FullName { get; set; }
+        public string FullName { get; set; } = string.Empty;
 
         [NotMapped]
-        public string CountryCode { get; set; }
+        public string CountryCode { get; set; } = string.Empty;
 
         [Required(ErrorMessage = "Phone Number is required")]
         [Display(Name = "Phone Number")]
-        [RegularExpression(@"^\+\d{1,3}\s\d{10}$", ErrorMessage = "Phone number must include a country code and 10 digits.")]
-        public string PhoneNumber { get; set; }
+        [RegularExpression(@"^\+\d{1,3}\s\d{4,14}$", ErrorMessage = "Phone number must include a country code and national number.")]
+        public string PhoneNumber { get; set; } = string.Empty;
 
         [Required(ErrorMessage = "Address is required")]
         [MinLength(10, ErrorMessage = "Address must be at least 10 characters long.")]
-        public string Address { get; set; }
+        public string Address { get; set; } = string.Empty;
 
         [Required(ErrorMessage = "Age is required")]
         [Range(18, 100, ErrorMessage = "Age must be between 18 and 100")]
         public int Age { get; set; }
 
         [Required(ErrorMessage = "Gender is required")]
-        public string Gender { get; set; }
+        public string Gender { get; set; } = string.Empty;
 
         [Required(ErrorMessage = "Department is required")]
-        public string Department { get; set; }
+        public string Department { get; set; } = string.Empty;
 
         [Required(ErrorMessage = "Admission Date is required")]
         [DataType(DataType.Date)]
@@ -42,6 +42,6 @@ namespace EmployeeManagement.Models
 
         [Required(ErrorMessage = "Employment Status is required")]
         [Display(Name = "Employment Status")]
-        public string EmploymentStatus { get; set; }
+        public string EmploymentStatus { get; set; } = string.Empty;
     }
 }

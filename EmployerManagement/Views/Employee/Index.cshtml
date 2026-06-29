@@ -26,7 +26,7 @@
             }
 
             .main-container {
-                max-width: 1400px;
+                max-width: 1450px;
                 margin: 0 auto; /* This centralizes the div */
                 background: #ffffff;
                 padding: 30px;
@@ -64,7 +64,7 @@
                         <thead class="table-light sticky-top">
                             <tr>
                                 <th style="min-width: 150px;">Full Name</th>
-                                <th style="min-width: 200px;">Phone Number</th>
+                                <th style="min-width: 220px;">Phone Number</th>
                                 <th style="min-width: 70px;">Age</th>
                                 <th style="min-width: 200px;">Address</th>
                                 <th style="min-width: 140px;">Gender</th>
@@ -123,6 +123,8 @@
                 <h4 class="mb-0">Employee Directory</h4>
             </div>
             <div class="card-body">
+                <!-- Lazy mode renders collapsible department folders here; eager/flat modes use the table below. -->
+                <div id="deptAccordion"></div>
                 <table id="EmployeeTable" class="table table-striped table-bordered w-100">
                     <thead>
                         <tr>
@@ -152,8 +154,42 @@
     <script src="https://cdn.datatables.net/rowgroup/1.4.1/js/dataTables.rowGroup.min.js"></script>
     <!-- SweetAlert2 -->
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <!-- libphonenumber-js (max bundle = full metadata, so getType() works) for client-side,
+         all-country phone validation. The server still re-validates; this is just fast UX feedback. -->
+    <script src="https://cdn.jsdelivr.net/npm/libphonenumber-js@1.11.17/bundle/libphonenumber-max.min.js"></script>
 
     <script>
+        // Country-code <option> list, generated server-side from libphonenumber's supported
+        // regions (see EmployeeController.BuildCountryCodeOptions). Injected once and reused
+        // for every dynamically-added grid row.
+        const COUNTRY_OPTIONS = `@Html.Raw(ViewBag.CountryCodeOptions)`;
+
+        // === DIRECTORY MODE SWITCH ===
+        // How the Employee Directory renders. Hard switch: change the default below.
+        // Live switch (no rebuild): load the page with ?mode=lazy | ?mode=eager | ?mode=flat.
+        //   lazy  (default) – collapsible department folders; a department's employees load
+        //                     ONLY when its folder is expanded. Tiny initial render, fast.
+        //   eager           – original rowGroup table: every row fetched & rendered hidden.
+        //                     The slow "before" (kept for the demo comparison).
+        //   flat            – server-side paginated table, 25 rows per page, no grouping.
+        const DIRECTORY_MODE = (new URLSearchParams(location.search).get('mode')) || 'lazy';
+        // === END DIRECTORY MODE SWITCH ===
+
+        // === REDIS LIVE SWITCH ===
+        // Forwarded to every directory request so the whole app can run uncached on demand.
+        // Live off-switch (no rebuild): load any page with ?cache=false. (The server also has a
+        // hard EnableRedisCache flag in EmployeeController.) Default: caching ON.
+        const USE_CACHE = (new URLSearchParams(location.search).get('cache') !== 'false');
+        // === END REDIS LIVE SWITCH ===
+
+        // === DEPARTMENT PAGING SWITCH (option 2) ===
+        // When ON (default), expanding a department loads DEPT_PAGE_SIZE rows at a time with
+        // Prev/Next, so a 10k-person department renders 25 rows instead of all at once.
+        // Live off-switch: ?deptpaging=false loads the whole department at once (old behaviour).
+        const ENABLE_DEPT_PAGING = (new URLSearchParams(location.search).get('deptpaging') !== 'false');
+        const DEPT_PAGE_SIZE = 25;
+        // === END DEPARTMENT PAGING SWITCH ===
+
         $(document).ready(function () {
 
         // --- ADMISSION DATE CONSTRAINTS ---
@@ -169,15 +205,30 @@
         const currentDd = String(today.getDate()).padStart(2, '0');
         const currentDateString = `${currentYyyy}-${currentMm}-${currentDd}`;
 
-        // --- PHONE VALIDATION RULES (keep in sync with PhoneRules in EmployeeController.cs) ---
-        // India (+91) is airtight (rejects impossible numbers, e.g. starting with 5);
-        // other countries are kept lenient — just a 10-digit number.
-        const PHONE_RULES = {
-            '+1':  { regex: /^\d{10}$/,     msg: 'US/Canada (+1) numbers must be 10 digits.' },
-            '+44': { regex: /^\d{10}$/,     msg: 'UK (+44) numbers must be 10 digits.' },
-            '+91': { regex: /^[6-9]\d{9}$/, msg: 'Indian (+91) numbers must be 10 digits and start with 6, 7, 8, or 9.' },
-            '+61': { regex: /^\d{10}$/,     msg: 'Australian (+61) numbers must be 10 digits.' }
-        };
+        // --- PHONE VALIDATION (client-side, every country) ---
+        // Uses libphonenumber-js (loaded above) so every code in the dropdown gets real
+        // per-country validation, not just a hardcoded few. This is a UX convenience ONLY:
+        // EmployeeController.ValidatePhone re-checks AND normalizes on the server, which is the
+        // source of truth and can't be bypassed. Returns an error string, or null when valid.
+        function validatePhoneClient(code, phone) {
+            if (!phone) return 'Phone Number is required.';
+            if (typeof libphonenumber === 'undefined') return null; // CDN blocked — let the server validate
+            let parsed;
+            try {
+                parsed = libphonenumber.parsePhoneNumber(code + phone);
+            } catch (e) {
+                return `Enter a valid phone number for ${code}.`;
+            }
+            if (!parsed || !parsed.isValid()) {
+                return `Enter a valid phone number for ${code}.`;
+            }
+            // Match the server: only mobile / landline, no premium-rate / toll-free / special.
+            const type = parsed.getType();
+            if (type && ['MOBILE', 'FIXED_LINE', 'FIXED_LINE_OR_MOBILE'].indexOf(type) === -1) {
+                return "Enter a mobile or landline number (premium-rate, toll-free, and special-service numbers aren't allowed).";
+            }
+            return null;
+        }
 
         // Validates a single entry row. Returns an array of error strings (empty = valid).
         // This is used INSTEAD of checkValidity() because the real-time input filters call
@@ -202,11 +253,9 @@
                 errors.push('Full Name can only contain letters and spaces.');
             }
 
-            const rule = PHONE_RULES[code];
-            if (!phone) {
-                errors.push('Phone Number is required.');
-            } else if (rule && !rule.regex.test(phone)) {
-                errors.push(rule.msg);
+            const phoneError = validatePhoneClient(code, phone);
+            if (phoneError) {
+                errors.push(phoneError);
             }
 
             if (ageRaw === '' || isNaN(age) || age < 18 || age > 100) {
@@ -234,12 +283,190 @@
         });
 
 
-        // 2. Initialize DataTable
-        var expandedGroups = {};    // Tracking which departments are EXPANDED (defaults to all rows collapsed)
+        // 2. Initialize the Employee Directory (lazy / eager / flat — see DIRECTORY_MODE).
+        var expandedGroups = {};    // (eager mode) which departments are expanded; default collapsed
+        var table = null;           // DataTable instance in eager/flat modes; stays null in lazy mode
 
-        var table = $('#EmployeeTable').DataTable({
-        "paging": false, // Completely removes the multi-page logic
-        "info": false,   // Removes the "Showing 1 to 10 of 50 entries" text
+        // Shared dd/mm/yyyy formatter, used by the DataTable date column AND the lazy folder tables.
+        function formatDate(data) {
+        if (!data) return "";
+        var d = new Date(data);
+        return ("0" + d.getDate()).slice(-2) + "/" + ("0" + (d.getMonth() + 1)).slice(-2) + "/" + d.getFullYear();
+        }
+
+        // Current search-panel filters, sent with every directory request.
+        function collectFilters() {
+        return {
+        searchName: $('#searchName').val(),
+        searchId: $('#searchId').val(),
+        startDate: $('#searchStartDate').val(),
+        endDate: $('#searchEndDate').val(),
+        cache: USE_CACHE   // forwarded so ?cache=false disables Redis for these requests too
+        };
+        }
+
+        // Re-render the directory after a search / clear / save, whichever mode is active.
+        function refreshDirectory() {
+        if (DIRECTORY_MODE === 'lazy') loadDeptSummary();
+        else if (table) table.ajax.reload();
+        }
+
+        // ---- LAZY MODE HELPERS ----
+        function escapeHtml(s) { return $('<div/>').text(s == null ? '' : s).html(); }
+
+        function folderLabel(icon, dept, count) {
+        return icon + ' ' + escapeHtml(dept) + ' (' + count + ' Employees)';
+        }
+
+        // Builds the inner employee table shown when a department folder is expanded.
+        function buildDeptTable(rows) {
+        if (!rows || !rows.length) return '<div class="text-muted p-2">No employees.</div>';
+        var html = '<table class="table table-sm table-striped mb-0"><thead><tr>'
+        + '<th>Full Name</th><th>Phone</th><th>Age</th><th>Gender</th><th>Admission Date</th><th>Status</th>'
+        + '</tr></thead><tbody>';
+        rows.forEach(function (e) {
+        html += '<tr>'
+        + '<td>' + escapeHtml(e.fullName) + '</td>'
+        + '<td>' + escapeHtml(e.phoneNumber) + '</td>'
+        + '<td>' + e.age + '</td>'
+        + '<td>' + escapeHtml(e.gender) + '</td>'
+        + '<td>' + formatDate(e.admissionDate) + '</td>'
+        + '<td>' + escapeHtml(e.employmentStatus) + '</td>'
+        + '</tr>';
+        });
+        return html + '</tbody></table>';
+        }
+
+        // Prev/Next pager bar shown under a department's rows when in-department paging is on.
+        function buildPager(start, total) {
+        var from = total === 0 ? 0 : start + 1;
+        var to = Math.min(start + DEPT_PAGE_SIZE, total);
+        var prevDisabled = start <= 0 ? 'disabled' : '';
+        var nextDisabled = (start + DEPT_PAGE_SIZE) >= total ? 'disabled' : '';
+        return '<div class="d-flex justify-content-between align-items-center p-2">'
+        + '<span class="text-muted small">Showing ' + from + '–' + to + ' of ' + total + '</span>'
+        + '<span>'
+        + '<button type="button" class="btn btn-sm btn-outline-secondary dept-prev" ' + prevDisabled + '>← Prev</button> '
+        + '<button type="button" class="btn btn-sm btn-outline-secondary dept-next" ' + nextDisabled + '>Next →</button>'
+        + '</span></div>';
+        }
+
+        // OPTION 2 ON: load one DEPT_PAGE_SIZE page of a department (25 rows) + a pager bar.
+        function loadDeptPage($folder, start) {
+        var $body = $folder.find('.dept-body');
+        var dept = $folder.data('dept');
+        $body.html('<div class="text-muted p-2">Loading…</div>');
+        var params = $.extend({ department: dept, start: start, length: DEPT_PAGE_SIZE }, collectFilters());
+        $.getJSON('/Employee/GetEmployeesByDepartment', params)
+        .done(function (resp) {
+        var total = (resp.total != null) ? resp.total : (resp.data ? resp.data.length : 0);
+        $body.html(buildDeptTable(resp.data) + buildPager(start, total));
+        $folder.data('loaded', true);
+        $folder.data('start', start);
+        })
+        .fail(function () {
+        $body.html('<div class="text-danger p-2">Failed to load employees.</div>');
+        });
+        }
+
+        // OPTION 2 OFF: load the whole department at once (the pre-paging behaviour).
+        function loadDeptAll($folder) {
+        var $body = $folder.find('.dept-body');
+        var dept = $folder.data('dept');
+        $body.html('<div class="text-muted p-2">Loading…</div>');
+        $.getJSON('/Employee/GetEmployeesByDepartment', $.extend({ department: dept }, collectFilters()))
+        .done(function (resp) {
+        $body.html(buildDeptTable(resp.data));
+        $folder.data('loaded', true);
+        })
+        .fail(function () {
+        $body.html('<div class="text-danger p-2">Failed to load employees.</div>');
+        });
+        }
+
+        // Pager button clicks (delegated; only present when in-department paging is on).
+        $('#deptAccordion').on('click', '.dept-next', function () {
+        var $folder = $(this).closest('.dept-folder');
+        loadDeptPage($folder, ($folder.data('start') || 0) + DEPT_PAGE_SIZE);
+        });
+        $('#deptAccordion').on('click', '.dept-prev', function () {
+        var $folder = $(this).closest('.dept-folder');
+        loadDeptPage($folder, Math.max(0, ($folder.data('start') || 0) - DEPT_PAGE_SIZE));
+        });
+
+        // Fetches the (filtered) per-department headcounts and renders one collapsed folder each.
+        function loadDeptSummary() {
+        var $acc = $('#deptAccordion').html('<div class="text-muted p-3">Loading departments…</div>');
+        $.getJSON('/Employee/GetDepartmentSummary', collectFilters())
+        .done(function (list) {
+        $acc.empty();
+        if (!list || !list.length) {
+        $acc.html('<div class="text-muted p-3">No employees match your search.</div>');
+        return;
+        }
+        list.forEach(function (d) {
+        var $folder = $(
+        '<div class="dept-folder border rounded mb-2">' +
+        '<div class="dept-header p-2" style="cursor:pointer;color:#0d6efd;font-weight:bold;">' +
+        folderLabel('➕', d.department, d.count) +
+        '</div>' +
+        '<div class="dept-body" style="display:none;"></div>' +
+        '</div>'
+        );
+        $folder.data('dept', d.department);
+        $folder.data('count', d.count);
+        $folder.data('loaded', false);
+        $acc.append($folder);
+        });
+        })
+        .fail(function () {
+        $acc.html('<div class="text-danger p-3">Failed to load departments.</div>');
+        });
+        }
+
+        // Expand / collapse a folder; lazy-load its employees the first time it's opened.
+        $('#deptAccordion').on('click', '.dept-header', function () {
+        var $folder = $(this).closest('.dept-folder');
+        var $body = $folder.find('.dept-body');
+        var dept = $folder.data('dept');
+        var count = $folder.data('count');
+
+        if ($body.is(':visible')) {                     // collapse
+        $body.hide();
+        $(this).html(folderLabel('➕', dept, count));
+        return;
+        }
+
+        $(this).html(folderLabel('➖', dept, count));    // expand
+        $body.show();
+        if ($folder.data('loaded')) return;             // rows already fetched once
+
+        // Option 2: load the first 25-row page; otherwise load the whole department at once.
+        if (ENABLE_DEPT_PAGING) loadDeptPage($folder, 0);
+        else loadDeptAll($folder);
+        });
+
+        // ---- MODE INITIALISATION ----
+        if (DIRECTORY_MODE === 'lazy') {
+        $('#EmployeeTable').hide();
+        $('#deptAccordion').show();
+        loadDeptSummary();
+        } else {
+        $('#deptAccordion').hide();
+
+        // Department column: a normal column in flat mode; hidden in eager mode (rowGroup reads it).
+        var columns = [
+        { "data": "fullName" },
+        { "data": "phoneNumber" },
+        { "data": "age" },
+        { "data": "gender" },
+        { "data": "department", "visible": DIRECTORY_MODE === 'flat' },
+        { "data": "admissionDate", "render": function (data) { return formatDate(data); } },
+        { "data": "employmentStatus" }
+        ];
+
+        var tableOptions = {
+        "processing": true,
         "ajax": {
         "url": "/Employee/GetEmployees",
         "type": "GET",
@@ -249,58 +476,49 @@
         d.searchId = $('#searchId').val();
         d.startDate = $('#searchStartDate').val();
         d.endDate = $('#searchEndDate').val();
+        d.cache = USE_CACHE; // forwarded so ?cache=false disables Redis here too
         }
         },
-        "columns": [
-        { "data": "fullName" },
-        { "data": "phoneNumber" },
-        { "data": "age" },
-        { "data": "gender" },
-        { "data": "department", "visible": false }, // Hidden, but rowGroup reads it
-        {
-        "data": "admissionDate",
-        "render": function(data) {
-        if (!data) return "";
-        var date = new Date(data);
-        var day = ("0" + date.getDate()).slice(-2);
-        var month = ("0" + (date.getMonth() + 1)).slice(-2);
-        var year = date.getFullYear();
-        return day + "/" + month + "/" + year;
-        }
-        },
-        { "data": "employmentStatus" }
-        ],
+        "columns": columns
+        };
 
-        // --- ROW GROUPING LOGIC ---
-        orderFixed: [4, 'asc'],
-        order: [[0, 'asc']],
-        rowGroup: {
+        if (DIRECTORY_MODE === 'flat') {
+        // SERVER-SIDE PAGINATION: one 25-row page at a time. Tiny payload, instant render.
+        tableOptions.serverSide = true;
+        tableOptions.paging = true;
+        tableOptions.info = true;
+        tableOptions.pageLength = 25;
+        tableOptions.lengthMenu = [10, 25, 50, 100];
+        tableOptions.order = [[0, 'asc']];
+        } else {
+        // EAGER GROUPED (original behaviour): pull EVERY row and group by department with
+        // collapsible folders — renders all 50k rows hidden. This is the slow "before".
+        tableOptions.paging = false;
+        tableOptions.info = false;
+        tableOptions.orderFixed = [4, 'asc'];
+        tableOptions.order = [[0, 'asc']];
+        tableOptions.rowGroup = {
         dataSrc: 'department',
         startRender: function (rows, group) {
         var isExpanded = !!expandedGroups[group];
-
-        // Hide or show the rows
-        rows.nodes().each(function (r) {
-        r.style.display = isExpanded ? '' : 'none';
-        });
-
+        rows.nodes().each(function (r) { r.style.display = isExpanded ? '' : 'none'; });
         var toggleText = isExpanded ? '➖ ' : '➕ ';
-
-        // Instead of building a <tr>, we return a styled <span>.
-        // DataTables will automatically wrap it in a <tr> and perfectly align the colspan!
         return $('<span/>')
-        .attr('data-name', group) // Tagging it so our click event can find it
+        .attr('data-name', group)
         .css({
         'cursor': 'pointer',
-        'color': '#0d6efd',    // FIX: Forces Bootstrap primary blue (overrides white text bugs)
+        'color': '#0d6efd',
         'font-weight': 'bold',
         'display': 'block',
-        'text-align': 'left'   // FIX: Ensures the folder stays neatly aligned to the left
+        'text-align': 'left'
         })
         .text(toggleText + group + ' (' + rows.count() + ' Employees)');
         }
+        };
         }
-        });
+
+        table = $('#EmployeeTable').DataTable(tableOptions);
+        }
 
 
         // 1. Name Fields: Only allow letters (a-z, A-Z) and spaces.
@@ -337,6 +555,7 @@
 
 
         $('#EmployeeTable tbody').on('click', 'tr.dtrg-start', function () {
+        if (!table) return; // only relevant in eager (rowGroup) mode
         var name = $(this).find('span').attr('data-name'); // We find the span we injected above to grab the department name
         if (name) {
         expandedGroups[name] = !expandedGroups[name];
@@ -346,7 +565,7 @@
 
         // 3. Search Button Action
         $('#btnSearch').on('click', function () {
-        table.ajax.reload(); // Reloads table with filters
+        refreshDirectory(); // re-render with filters (folders in lazy mode, table otherwise)
         });
 
         // 4. Clear Button Action
@@ -355,7 +574,7 @@
         $('#searchId').val('');
         $('#searchStartDate').val('');
         $('#searchEndDate').val('');
-        table.ajax.reload(); // Reloads table without filters
+        refreshDirectory(); // re-render without filters
         });
 
 
@@ -370,13 +589,8 @@
         <td><input type="text" class="form-control form-control-sm excel-name" placeholder="Full Name..." required /></td>
         <td>
         <div class="input-group input-group-sm">
-        <select class="form-select excel-code" style="max-width: 90px;">
-        <option value="+1">+1</option>
-        <option value="+44">+44</option>
-        <option value="+91" selected>+91</option>
-        <option value="+61">+61</option>
-        </select>
-        <input type="text" class="form-control excel-phone" placeholder="10 digits..." minlength="10" maxlength="10" required />
+        <select class="form-select excel-code" style="max-width: 100px;">${COUNTRY_OPTIONS}</select>
+        <input type="text" class="form-control excel-phone" placeholder="Phone number..." minlength="4" maxlength="14" required />
         </div>
         </td>
         <td><input type="number" class="form-control form-control-sm excel-age" placeholder="Age..." min="18" max="100" required /></td>
@@ -471,11 +685,12 @@
         $(this).val(value);
         });
 
-        // Phone: Numbers only AND strictly limit to 10 digits
+        // Phone: Numbers only. National numbers vary in length across countries, so cap at
+        // 14 digits (E.164 allows a national number of at most 15 minus the country code).
         $('#bulkEntryTable').on('input', '.excel-phone', function () {
         let value = $(this).val().replace(/[^0-9]/g, '');
-        if (value.length > 10) {
-        value = value.slice(0, 10); // Instantly cuts off the 11th digit
+        if (value.length > 14) {
+        value = value.slice(0, 14); // Trim anything past the E.164 maximum
         }
         $(this).val(value);
         });
@@ -484,10 +699,10 @@
         // switches country code) if it doesn't satisfy that country's rules.
         function flagPhone($input) {
         const code = $input.closest('tr').find('.excel-code').val();
-        const rule = PHONE_RULES[code];
         const value = ($input.val() || '').trim();
-        if (value && rule && !rule.regex.test(value)) {
-        $input.addClass('is-invalid').attr('title', rule.msg);
+        const err = value ? validatePhoneClient(code, value) : null;
+        if (err) {
+        $input.addClass('is-invalid').attr('title', err);
         } else {
         $input.removeClass('is-invalid').removeAttr('title');
         }
@@ -563,6 +778,17 @@
         confirmButtonText: 'Yes, Save All!'
         }).then((result) => {
         if (result.isConfirmed) {
+
+        // Loading popup: the server still has to validate every number and write to the DB,
+        // which can take a moment. Show a spinner so the user knows work is happening.
+        Swal.fire({
+        title: 'Saving to database…',
+        html: 'Please wait while your employees are validated and saved.',
+        allowOutsideClick: false,
+        allowEscapeKey: false,
+        didOpen: () => { Swal.showLoading(); }
+        });
+
         $.ajax({
         url: '/Employee/SaveMultipleEmployees',
         type: 'POST',
@@ -576,8 +802,8 @@
         $('#bulkEntryTable tbody').empty();
         $('#bulkEntryTable tbody').append(getNewRowHtml());
 
-        // Refresh the directory
-        table.ajax.reload();
+        // Refresh the directory (folders in lazy mode, DataTable otherwise)
+        refreshDirectory();
         } else {
         Swal.fire({ title: 'Validation Error!', html: response.message, icon: 'error' });
         }

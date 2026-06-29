@@ -19,14 +19,14 @@ Instead of writing raw SQL queries (like `INSERT INTO Employees...`) inside the 
 
 * **The Model (`Employee.cs`)**: The C# blueprint of the SQL table. Every property here maps directly to a column in SQL.
     * **Data Annotations (`[Required]`, `[MinLength]`, `[RegularExpression]`)**: These attributes define the business rules. C# checks these rules before attempting to communicate with the SQL database.
-* **The DbContext (`ApplicationDbContext.cs`)**: The "bridge" between the C# code and SQL Server.
+* **The DbContext (`ApplicationDbContext.cs`)**: The "bridge" between the C# code and SQL Server. EF Core is the library/framework that translates C# LINQ to raw SQL queries.
     * `DbSet<Employee> Employees`: Instructs EF Core to map the `Employee` C# class to the `Employees` SQL table.
 * **`Program.cs`**: On application startup, `builder.Services.AddDbContext(...)` reads the database connection string and officially opens the bridge for the rest of the application to use.
 
 ---
 
 ## 3. The Brains (The `EmployeeController.cs`)
-The Controller manages traffic. It waits for HTTP requests from the web browser, processes data, interacts with the database via EF Core, and sends responses back.
+* **The Controller** manages traffic. It waits for HTTP requests from the web browser, processes data, interacts with the database via EF Core, and sends responses back.
 
 * **`GetEmployees()`**: Triggered when the web page requests table data. `_context.Employees.ToList()` is executed by EF Core, which generates a `SELECT * FROM Employees` query, retrieves the data, converts it into a list of C# objects, and returns it to the browser as JSON.
 * **`SaveEmployee(Employee model)`**: The endpoint that handles form submissions.
@@ -45,3 +45,7 @@ The user interface combines standard HTML with Bootstrap for styling, DataTables
     1.  `$('#EmployeeForm').serialize()` gathers all input field values into a URL-encoded string.
     2.  `type: 'POST'` sends that payload to the `SaveEmployee` Controller action in the background, preventing a full page reload.
     3.  `success: function(response)` listens for the Controller's JSON response. If successful, it triggers a green SweetAlert, resets the form, and calls `table.ajax.reload()` to update the grid with the new database entry seamlessly.
+
+
+    To enable/disable server-side pagination, set "const ENABLE_PAGINATION = false" in index.cshtml
+    To enable/disable Redis, set "EnableRedisCache = false" in EmployeeController.cs (+ restart)
