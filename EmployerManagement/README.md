@@ -47,5 +47,5 @@ The user interface combines standard HTML with Bootstrap for styling, DataTables
     3.  `success: function(response)` listens for the Controller's JSON response. If successful, it triggers a green SweetAlert, resets the form, and calls `table.ajax.reload()` to update the grid with the new database entry seamlessly.
 
 
-    To enable/disable server-side pagination, set "const ENABLE_PAGINATION = false" in index.cshtml
-    To enable/disable Redis, set "EnableRedisCache = false" in EmployeeController.cs (+ restart)
+    To enable/disable server-side pagination, set "const ENABLE_PAGINATION = false" or "const ENABLE_DEPT_PAGING = false" in index.cshtml (View)
+    To enable/disable Redis, set "EnableRedisCache = false" in EmployeeController.cs (Controller) (+ restart)
