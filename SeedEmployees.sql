@@ -2,7 +2,7 @@
    SeedEmployees.sql  —  bulk test data for performance benchmarking
    ----------------------------------------------------------------------------
    Standalone script. NOT part of the build / app code. Run it in SSMS against
-   the same database the app uses (EmployeeManagementDb).
+   the same database the app uses (your configured database).
 
    Inserts 10,000 employees with valid, app-conformant details:
      - FullName        : letters + spaces only
@@ -17,7 +17,7 @@
    Id is an IDENTITY column and is intentionally omitted.
    ============================================================================ */
 
-USE EmployeeManagementDb;
+USE EmployeeManagementDb;  -- set to your database name
 GO
 
 SET NOCOUNT ON;
