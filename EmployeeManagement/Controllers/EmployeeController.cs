@@ -36,19 +36,39 @@ namespace EmployeeManagement.Controllers
         }
 
         // === REDIS CACHING ===
+        // Resilient cache access: if Redis is configured but unreachable, every call here must
+        // behave like a cache MISS (read) or a no-op (write) instead of throwing. Without this,
+        // a Redis outage turns every read endpoint into an HTTP 500 — the directory and search
+        // appear broken even though the database is fine. (Note: this is different from removing
+        // the AddStackExchangeRedisCache block in Program.cs, which makes _cache null; here _cache
+        // is non-null but the server behind it is down.)
+        private string? CacheGet(string key)
+        {
+            if (_cache == null) return null;
+            try { return _cache.GetString(key); }
+            catch { return null; } // Redis down → treat as a miss, fall through to the DB
+        }
+
+        private void CacheSet(string key, string value, DistributedCacheEntryOptions? opts = null)
+        {
+            if (_cache == null) return;
+            try { _cache.SetString(key, value, opts ?? new DistributedCacheEntryOptions()); }
+            catch { /* Redis down → skip caching, the DB result is still returned */ }
+        }
+
         // Cache invalidation by version number. Every cache key embeds the current version;
         // a save bumps the version, which orphans all previously cached pages so the next
         // request rebuilds from the DB exactly once (then re-caches). A 5-minute TTL is a
         // safety net in case a bump is ever missed.
         private long GetCacheVersion()
         {
-            var v = _cache?.GetString("employees:version");
+            var v = CacheGet("employees:version");
             return long.TryParse(v, out var n) ? n : 0;
         }
 
         private void BumpCacheVersion()
         {
-            _cache?.SetString("employees:version", (GetCacheVersion() + 1).ToString());
+            CacheSet("employees:version", (GetCacheVersion() + 1).ToString());
         }
 
         // camelCase / web defaults so the JSON matches what the DataTable columns expect
@@ -187,12 +207,15 @@ namespace EmployeeManagement.Controllers
             bool paginate = length.HasValue && length.Value > 0;
 
             // === REDIS CACHING ===
+            // Compute the key (and touch Redis) ONLY when caching is on, so ?cache=false is a
+            // genuine bypass that never contacts Redis at all.
             bool useCache = EnableRedisCache && cache && _cache != null;
-            string cacheKey = $"employees:v{GetCacheVersion()}:p{paginate}:{start}:{length}:" +
-                              $"{searchName}:{searchId}:{startDate:o}:{endDate:o}";
+            string? cacheKey = null;
             if (useCache)
             {
-                var cached = _cache!.GetString(cacheKey);
+                cacheKey = $"employees:v{GetCacheVersion()}:p{paginate}:{start}:{length}:" +
+                           $"{searchName}:{searchId}:{startDate:o}:{endDate:o}";
+                var cached = CacheGet(cacheKey);
                 if (cached != null)
                     return Content(WithDraw(cached, draw ?? 0), "application/json"); // HIT: no SQL, no serialize
             }
@@ -228,7 +251,7 @@ namespace EmployeeManagement.Controllers
             // === REDIS CACHING ===
             if (useCache)
             {
-                _cache!.SetString(cacheKey, inner, new DistributedCacheEntryOptions
+                CacheSet(cacheKey!, inner, new DistributedCacheEntryOptions
                 {
                     AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5)
                 });
@@ -261,10 +284,11 @@ namespace EmployeeManagement.Controllers
         {
             // === REDIS CACHING ===
             bool useCache = EnableRedisCache && cache && _cache != null;
-            string cacheKey = $"deptsummary:v{GetCacheVersion()}:{searchName}:{searchId}:{startDate:o}:{endDate:o}";
+            string? cacheKey = null;
             if (useCache)
             {
-                var hit = _cache!.GetString(cacheKey);
+                cacheKey = $"deptsummary:v{GetCacheVersion()}:{searchName}:{searchId}:{startDate:o}:{endDate:o}";
+                var hit = CacheGet(cacheKey);
                 if (hit != null) return Content(hit, "application/json");
             }
             // === END REDIS CACHING ===
@@ -280,7 +304,7 @@ namespace EmployeeManagement.Controllers
             // === REDIS CACHING ===
             if (useCache)
             {
-                _cache!.SetString(cacheKey, json, new DistributedCacheEntryOptions
+                CacheSet(cacheKey!, json, new DistributedCacheEntryOptions
                 {
                     AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5)
                 });
@@ -303,10 +327,11 @@ namespace EmployeeManagement.Controllers
 
             // === REDIS CACHING ===
             bool useCache = EnableRedisCache && cache && _cache != null;
-            string cacheKey = $"deptrows:v{GetCacheVersion()}:{department}:{start}:{length}:{searchName}:{searchId}:{startDate:o}:{endDate:o}";
+            string? cacheKey = null;
             if (useCache)
             {
-                var hit = _cache!.GetString(cacheKey);
+                cacheKey = $"deptrows:v{GetCacheVersion()}:{department}:{start}:{length}:{searchName}:{searchId}:{startDate:o}:{endDate:o}";
+                var hit = CacheGet(cacheKey);
                 if (hit != null) return Content(hit, "application/json");
             }
             // === END REDIS CACHING ===
@@ -325,7 +350,7 @@ namespace EmployeeManagement.Controllers
             // === REDIS CACHING ===
             if (useCache)
             {
-                _cache!.SetString(cacheKey, json, new DistributedCacheEntryOptions
+                CacheSet(cacheKey!, json, new DistributedCacheEntryOptions
                 {
                     AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5)
                 });
