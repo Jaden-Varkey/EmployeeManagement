@@ -261,20 +261,6 @@ namespace EmployeeManagement.Controllers
             return Content(WithDraw(inner, draw ?? 0), "application/json");
         }
 
-        // New Endpoint for Name Autofill
-        [HttpGet]
-        public IActionResult AutocompleteNames(string term)
-        {
-            var names = _context.Employees
-                .Where(e => e.FullName.Contains(term))
-                .Select(e => e.FullName)
-                .Distinct()              // Prevent duplicates if two people have the exact same name
-                .Take(10)                // Suggesting only the top 10 matches to keep it fast
-                .ToList();
-
-            return Json(names);
-        }
-
         // Lazy-grouping endpoint #1: the department folders. Returns just one row per
         // department with its (filtered) headcount — a cheap GROUP BY — so the directory's
         // initial load is a few hundred bytes instead of the whole 50k-row table.

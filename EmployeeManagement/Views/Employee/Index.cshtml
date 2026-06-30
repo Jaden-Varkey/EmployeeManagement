@@ -104,7 +104,7 @@
             <div class="card-body">
                 <div class="row g-3">
                     <div class="col-md-3">
-                        <label class="form-label fw-bold">Name (Autofill)</label>
+                        <label class="form-label fw-bold">Name</label>
                         <input type="text" id="searchName" class="form-control" placeholder="Start typing name..." />
                     </div>
                     <div class="col-md-2">
@@ -119,9 +119,8 @@
                         <label class="form-label fw-bold">Date To</label>
                         <input type="date" id="searchEndDate" class="form-control" />
                     </div>
-                    <div class="col-md-3 d-flex align-items-end gap-2">
-                        <button type="button" id="btnSearch" class="btn btn-primary w-50 fw-bold">Search</button>
-                        <button type="button" id="btnClear" class="btn btn-outline-secondary w-50">Clear</button>
+                    <div class="col-md-3 d-flex align-items-end">
+                        <button type="button" id="btnClear" class="btn btn-outline-secondary w-100">Clear</button>
                     </div>
                 </div>
             </div>
@@ -309,13 +308,6 @@
             return errors;
         }
 
-        // 1. Initializing Name Autofill
-        $("#searchName").autocomplete({
-        source: '/Employee/AutocompleteNames',
-        minLength: 2
-        });
-
-
         // 2. Initialize the Employee Directory (lazy / eager / flat — see DIRECTORY_MODE).
         var expandedGroups = {};    // (eager mode) which departments are expanded; default collapsed
         var table = null;           // DataTable instance in eager/flat modes; stays null in lazy mode
@@ -485,7 +477,8 @@
         // from scroll position by arithmetic (no per-row measuring).
         var ROW_HEIGHT = 44;
         var OVERSCAN = 6;            // extra rows rendered above & below the viewport to hide gaps while scrolling
-        var virtualData = [];        // the full filtered list, held in memory — NOT in the DOM
+        var allEmployees = [];       // the FULL dataset, fetched once and kept in memory (the master copy)
+        var virtualData = [];        // the currently-visible subset after client-side filtering — NOT in the DOM
         var _vRendering = false;     // reentrancy guard so overlapping animation frames don't double-render
 
         // One fixed-height row of the windowed list.
@@ -533,22 +526,44 @@
         renderVirtual();
         }
 
-        // Fetch the whole filtered list once, then hand it to the windowing renderer.
+        // Fetch the WHOLE dataset once into memory. After this, searching/filtering is done
+        // entirely client-side (see applyClientFilter) — no further server requests per search,
+        // because every row is already here in allEmployees.
         function loadVirtual() {
         $('#content').css('transform', 'none').html('<div class="text-muted p-3">Loading…</div>');
-        $.getJSON('/Employee/GetEmployees', collectFilters())
+        $.getJSON('/Employee/GetEmployees', { cache: USE_CACHE }) // no search params: load everything
         .done(function (resp) {
-        virtualData = (resp && resp.data) ? resp.data : [];
-        if (!virtualData.length) {
-        $('#spacer').height(0);
-        $('#content').css('transform', 'none').html('<div class="text-muted p-3">No employees match your search.</div>');
-        return;
-        }
-        initVirtual();
+        allEmployees = (resp && resp.data) ? resp.data : [];
+        applyClientFilter(); // render with whatever is currently in the search panel
         })
         .fail(function () {
         $('#content').css('transform', 'none').html('<div class="text-danger p-3">Failed to load employees.</div>');
         });
+        }
+
+        // Filter the in-memory master list against the search panel and re-render — instantly,
+        // with zero network. Name = case-insensitive "contains"; ID = exact; dates = inclusive range.
+        function applyClientFilter() {
+        var name = ($('#searchName').val() || '').trim().toLowerCase();
+        var id = ($('#searchId').val() || '').trim();
+        var startD = $('#searchStartDate').val();
+        var endD = $('#searchEndDate').val();
+
+        virtualData = allEmployees.filter(function (e) {
+        if (name && (e.fullName || '').toLowerCase().indexOf(name) === -1) return false;
+        if (id && String(e.id) !== id) return false;
+        var ad = (e.admissionDate || '').slice(0, 10); // YYYY-MM-DD, so string compare = date compare
+        if (startD && ad < startD) return false;
+        if (endD && ad > endD) return false;
+        return true;
+        });
+
+        if (!virtualData.length) {
+        $('#spacer').height(0);
+        $('#content').css('transform', 'none').html('<div class="text-muted p-3">No employees found.</div>');
+        return;
+        }
+        initVirtual();
         }
 
         // ---- MODE INITIALISATION ----
@@ -631,8 +646,21 @@
         }
 
 
-        // Search-panel input filters.
-        // Name (autofill): letters and spaces only.
+        // Live search: the directory updates as the user types — there is no Search button.
+        // In virtual mode this filters the already-loaded data in memory (instant, no request);
+        // in the other modes it re-queries the server (debounced so we don't fire per keystroke).
+        var _searchDebounce = null;
+        function triggerSearch() {
+        if (DIRECTORY_MODE === 'virtual') {
+        applyClientFilter();                 // in-memory, zero network
+        } else {
+        clearTimeout(_searchDebounce);
+        _searchDebounce = setTimeout(refreshDirectory, 200);
+        }
+        }
+
+        // Search-panel input filters (keep only valid characters).
+        // Name: letters and spaces only.
         $('#searchName').on('input', function () {
         $(this).val($(this).val().replace(/[^a-zA-Z\s]/g, ''));
         });
@@ -641,6 +669,9 @@
         $('#searchId').on('input', function () {
         $(this).val($(this).val().replace(/[^0-9]/g, ''));
         });
+
+        // Any change to a search field updates the directory live (the strip handlers above run first).
+        $('#searchName, #searchId, #searchStartDate, #searchEndDate').on('input change', triggerSearch);
 
 
         $('#EmployeeTable tbody').on('click', 'tr.dtrg-start', function () {
@@ -652,18 +683,13 @@
         }
         });
 
-        // 3. Search Button Action
-        $('#btnSearch').on('click', function () {
-        refreshDirectory(); // re-render with filters (folders in lazy mode, table otherwise)
-        });
-
-        // 4. Clear Button Action
+        // Clear Button: reset all filters, then refresh live (search itself is automatic now).
         $('#btnClear').on('click', function () {
         $('#searchName').val('');
         $('#searchId').val('');
         $('#searchStartDate').val('');
         $('#searchEndDate').val('');
-        refreshDirectory(); // re-render without filters
+        triggerSearch(); // re-render without filters
         });
 
 
