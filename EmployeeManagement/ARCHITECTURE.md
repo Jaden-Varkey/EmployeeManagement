@@ -49,3 +49,14 @@ The user interface combines standard HTML with Bootstrap for styling, DataTables
 
     To enable/disable server-side pagination, set "const ENABLE_PAGINATION = false" or "const ENABLE_DEPT_PAGING = false" in index.cshtml (View)
     To enable/disable Redis, set "EnableRedisCache = false" in EmployeeController.cs (Controller) (+ restart)
+
+### Directory rendering modes (`?mode=` in the URL, default `lazy`)
+The Employee Directory can render four ways; switch live with a query-string parameter:
+* **`lazy`** (default) – collapsible department folders; a department's rows load only when its folder is expanded.
+* **`eager`** – the original grouped table that fetches and renders every row (kept as the slow "before").
+* **`flat`** – a server-side paginated table, 25 rows per page.
+* **`virtual`** – **virtual scrolling (windowing)**: the whole filtered list is fetched once, but only the rows currently
+  visible in the viewport are kept in the DOM. As you scroll, that small window of rows is recycled, so scrolling stays
+  smooth on desktop and mobile regardless of how many thousands of records exist. Implemented in `Index.cshtml` with a
+  fixed-height `#viewport` / `#spacer` / `#content` layout and a `requestAnimationFrame`-throttled scroll handler
+  (`renderVirtual` / `initVirtual`). `ROW_HEIGHT` in the script must stay equal to the `.v-row` CSS height.
