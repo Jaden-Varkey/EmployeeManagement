@@ -1,5 +1,8 @@
 # Employee Management
 
+[![CI](https://github.com/Jaden-Varkey/EmployeeManagement/actions/workflows/ci.yml/badge.svg)](https://github.com/Jaden-Varkey/EmployeeManagement/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 A high-performance ASP.NET web application designed for viewing and managing large employee datasets efficiently.
 
 ## Overview
@@ -19,3 +22,6 @@ This application provides a fast and responsive user interface for displaying th
 
 ## Architecture
 For an in-depth, technical explanation of the codebase—including detailed breakdowns of the virtual scrolling implementation, windowing math, and DOM manipulation—please refer to the [Architecture Documentation](EmployeeManagement/ARCHITECTURE.md).
+
+## Contributors
+- [Jaden Varkey](https://github.com/Jaden-Varkey)
