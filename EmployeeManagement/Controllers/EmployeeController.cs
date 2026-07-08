@@ -183,9 +183,9 @@ namespace EmployeeManagement.Controllers
             string searchName, int? searchId, DateTime? startDate, DateTime? endDate)
         {
             if (!string.IsNullOrEmpty(searchName)) q = q.Where(e => e.FullName.Contains(searchName));
-            if (searchId.HasValue)                 q = q.Where(e => e.Id == searchId.Value);
-            if (startDate.HasValue)                q = q.Where(e => e.AdmissionDate >= startDate.Value);
-            if (endDate.HasValue)                  q = q.Where(e => e.AdmissionDate <= endDate.Value);
+            if (searchId.HasValue) q = q.Where(e => e.Id == searchId.Value);
+            if (startDate.HasValue) q = q.Where(e => e.AdmissionDate >= startDate.Value);
+            if (endDate.HasValue) q = q.Where(e => e.AdmissionDate <= endDate.Value);
             return q;
         }
 
