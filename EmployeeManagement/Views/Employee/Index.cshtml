@@ -1,4 +1,4 @@
-﻿@{
+@{
     Layout = null; // This ensures we don't rely on a broken layout file
 }
 
@@ -63,6 +63,11 @@
 <body>
 
     <div class="main-container">
+        <!-- Top bar: sign-out -->
+        <div class="d-flex justify-content-end mb-3">
+            <button type="button" id="btnLogout" class="btn btn-outline-danger btn-sm fw-bold">Sign out</button>
+        </div>
+
         <!-- Input Form Section -->
         <div class="card shadow-sm mb-5 border-primary">
             <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
@@ -223,6 +228,91 @@
         // === END DEPARTMENT PAGING SWITCH ===
 
         $(document).ready(function () {
+
+        // === AUTH: transparent access-token refresh ===
+        // Any data/save AJAX call that comes back 401 means the access token expired. 
+        // We wrap $.ajax to pause the request, silently refresh the token, and then RETRY the original request.
+        var _originalAjax = $.ajax;
+        var _isRefreshing = false;
+        var _failedQueue = [];
+
+        $.ajax = function (url, options) {
+            if (typeof url === 'object') {
+                options = url;
+                url = undefined;
+            } else {
+                options.url = url;
+            }
+            options = $.extend({}, options);
+
+            var deferred = $.Deferred();
+            var currentJqXHR;
+
+            function makeRequest() {
+                var requestOptions = $.extend({}, options);
+                delete requestOptions.success;
+                delete requestOptions.error;
+                delete requestOptions.complete;
+
+                currentJqXHR = _originalAjax(requestOptions);
+
+                currentJqXHR.done(function (data, textStatus, jqXHR) {
+                    if (options.success) options.success.apply(this, arguments);
+                    deferred.resolveWith(this, arguments);
+                });
+
+                currentJqXHR.fail(function (jqXHR, textStatus, errorThrown) {
+                    if (jqXHR.status === 401 && (!requestOptions.url || requestOptions.url.indexOf('/Auth/') === -1)) {
+                        _failedQueue.push(makeRequest);
+
+                        if (!_isRefreshing) {
+                            _isRefreshing = true;
+                            _originalAjax({ url: '/Auth/Refresh', type: 'POST' })
+                                .done(function () {
+                                    _isRefreshing = false;
+                                    var queue = _failedQueue;
+                                    _failedQueue = [];
+                                    queue.forEach(function (cb) { cb(); });
+                                })
+                                .fail(function () {
+                                    _isRefreshing = false;
+                                    _failedQueue = [];
+                                    window.location.href = '/Auth/Login';
+                                });
+                        }
+                    } else {
+                        if (options.error) options.error.apply(this, arguments);
+                        deferred.rejectWith(this, arguments);
+                    }
+                });
+                
+                currentJqXHR.always(function () {
+                    // Only fire complete if it's NOT a 401 we're retrying
+                    if (currentJqXHR.status === 401 && (!requestOptions.url || requestOptions.url.indexOf('/Auth/') === -1)) {
+                        return;
+                    }
+                    if (options.complete) options.complete.apply(this, arguments);
+                });
+            }
+
+            makeRequest();
+
+            var promise = deferred.promise();
+            promise.abort = function () {
+                if (currentJqXHR) currentJqXHR.abort();
+            };
+            promise.success = promise.done;
+            promise.error = promise.fail;
+            promise.complete = promise.always;
+
+            return promise;
+        };
+
+        // Sign out: forget the refresh token server-side, clear cookies, return to login.
+        $('#btnLogout').on('click', function () {
+            $.ajax({ url: '/Auth/Logout', type: 'POST' })
+                .always(function () { window.location.href = '/Auth/Login'; });
+        });
 
         // --- ADMISSION DATE CONSTRAINTS ---
         const today = new Date();
