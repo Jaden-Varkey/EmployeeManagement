@@ -200,16 +200,16 @@
         // === DIRECTORY MODE SWITCH ===
         // How the Employee Directory renders. Hard switch: change the default below.
         // Live switch (no rebuild): load the page with ?mode=lazy | ?mode=eager | ?mode=flat.
-        //   lazy  (default) – collapsible department folders; a department's employees load
+        //   lazy            – collapsible department folders; a department's employees load
         //                     ONLY when its folder is expanded. Tiny initial render, fast.
         //   eager           – original rowGroup table: every row fetched & rendered hidden.
         //                     The slow "before" (kept for the demo comparison).
         //   flat            – server-side paginated table, 25 rows per page, no grouping.
-        //   virtual         – virtual scrolling (windowing): fetch the whole filtered list once,
+        //   virtual (default)– virtual scrolling (windowing): fetch the whole filtered list once,
         //                     but only ever keep the rows visible in the viewport in the DOM. As
         //                     you scroll, that small window is recycled, so scrolling stays smooth
         //                     on desktop and mobile no matter how many thousands of rows exist.
-        const DIRECTORY_MODE = (new URLSearchParams(location.search).get('mode')) || 'lazy';
+        const DIRECTORY_MODE = (new URLSearchParams(location.search).get('mode')) || 'virtual';
         // === END DIRECTORY MODE SWITCH ===
 
         // === REDIS LIVE SWITCH ===

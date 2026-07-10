@@ -1,4 +1,4 @@
-﻿# Employee Management System - Architecture Documentation
+# Employee Management System - Architecture Documentation
 
 This document outlines the full-stack architecture for the Employee Management application. It explains how the database, backend C# code, and frontend UI communicate to save and display records.
 
@@ -36,7 +36,16 @@ Instead of writing raw SQL queries (like `INSERT INTO Employees...`) inside the 
 
 ---
 
-## 4. The Frontend (HTML & JavaScript in `Index.cshtml`)
+## 4. Authentication & Security (JWT)
+The application secures the web pages and API endpoints using JSON Web Tokens (JWT).
+
+* **Cookie-Based JWT**: Instead of manually attaching an `Authorization` header to every AJAX request, the JWT is stored in an `access_token` cookie. This allows both direct browser page loads (like the `Index` view) and background DataTables AJAX calls to authenticate automatically.
+* **`[Authorize]` Attribute**: The `EmployeeController` is guarded by this attribute, meaning no data or HTML is served without a valid token.
+* **Silent Refresh (`OnChallenge`)**: Configured in `Program.cs`. If an AJAX call encounters an expired token, it receives a standard HTTP 401. However, if a user navigates to a page with an expired token in a regular browser window, they are redirected to a silent refresh page to seamlessly obtain a new token.
+
+---
+
+## 5. The Frontend (HTML & JavaScript in `Index.cshtml`)
 The user interface combines standard HTML with Bootstrap for styling, DataTables for the data grid, and SweetAlert2 for notifications.
 
 * **The HTML Form**: Utilizes standard inputs with built-in HTML5 validation (like `minlength="5"` and `required`). This provides the first line of defense, allowing the browser to stop the user before making a server request.
@@ -50,12 +59,12 @@ The user interface combines standard HTML with Bootstrap for styling, DataTables
     To enable/disable server-side pagination, set "const ENABLE_PAGINATION = false" or "const ENABLE_DEPT_PAGING = false" in index.cshtml (View)
     To enable/disable Redis, set "EnableRedisCache = false" in EmployeeController.cs (Controller) (+ restart)
 
-### Directory rendering modes (`?mode=` in the URL, default `lazy`)
+### Directory rendering modes (`?mode=` in the URL, default `virtual`)
 The Employee Directory can render four ways; switch live with a query-string parameter:
-* **`lazy`** (default) – collapsible department folders; a department's rows load only when its folder is expanded.
+* **`lazy`** – collapsible department folders; a department's rows load only when its folder is expanded.
 * **`eager`** – the original grouped table that fetches and renders every row (kept as the slow "before").
 * **`flat`** – a server-side paginated table, 25 rows per page.
-* **`virtual`** – **virtual scrolling (windowing)**: the whole filtered list is fetched once, but only the rows currently
+* **`virtual`** (default) – **virtual scrolling (windowing)**: the whole filtered list is fetched once, but only the rows currently
   visible in the viewport are kept in the DOM. As you scroll, that small window of rows is recycled, so scrolling stays
   smooth on desktop and mobile regardless of how many thousands of records exist. Implemented in `Index.cshtml` with a
   fixed-height `#viewport` / `#spacer` / `#content` layout and a `requestAnimationFrame`-throttled scroll handler
