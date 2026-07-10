@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Caching.Distributed;
 using EmployeeManagement.Data;
 using EmployeeManagement.Models;
@@ -7,6 +8,10 @@ using PhoneNumbers;
 
 namespace EmployeeManagement.Controllers
 {
+    // Gates the whole app: the Index PAGE and every data/save endpoint now require a valid JWT.
+    // The token rides in the "access_token" cookie, so both page navigations and the existing
+    // jQuery/DataTables AJAX calls authenticate automatically (no header wiring needed).
+    [Authorize]
     public class EmployeeController : Controller
     {
         private readonly ApplicationDbContext _context;
