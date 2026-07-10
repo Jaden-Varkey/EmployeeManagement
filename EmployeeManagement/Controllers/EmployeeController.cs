@@ -10,7 +10,7 @@ namespace EmployeeManagement.Controllers
 {
     // Gates the whole app: the Index PAGE and every data/save endpoint now require a valid JWT.
     // The token rides in the "access_token" cookie, so both page navigations and the existing
-    // jQuery/DataTables AJAX calls authenticate automatically (no header wiring needed).
+    // jQuery AJAX calls authenticate automatically (no header wiring needed).
     [Authorize]
     public class EmployeeController : Controller
     {
@@ -76,18 +76,12 @@ namespace EmployeeManagement.Controllers
             CacheSet("employees:version", (GetCacheVersion() + 1).ToString());
         }
 
-        // camelCase / web defaults so the JSON matches what the DataTable columns expect
+        // camelCase / web defaults so the JSON matches what the client expects
         // (fullName, phoneNumber, ...). MVC's Json() helper does this automatically, but here
         // we serialize manually (to cache the string), so we must opt in explicitly — otherwise
-        // System.Text.Json emits PascalCase and DataTables can't find the columns.
+        // System.Text.Json emits PascalCase and the client can't find the fields.
         private static readonly System.Text.Json.JsonSerializerOptions JsonOpts =
             new(System.Text.Json.JsonSerializerDefaults.Web);
-
-        // Splices the request's own "draw" counter onto a cached response body. DataTables
-        // uses draw to discard out-of-order responses, so it must echo the *incoming* value
-        // and therefore can never be part of the cached payload. inner always starts with '{'.
-        private static string WithDraw(string inner, int draw) =>
-            "{\"draw\":" + draw + "," + inner.Substring(1);
         // === END REDIS CACHING ===
 
         // Validates the national number against its country code using libphonenumber,
@@ -194,23 +188,15 @@ namespace EmployeeManagement.Controllers
             return q;
         }
 
-        // Endpoint for jQuery DataTable to fetch data.
-        //
-        // Works in two modes off the same code path:
-        //   - PAGINATION OFF: the view (serverSide:false) sends no "length", so we return the
-        //     whole filtered list as { data: [...] } (DataTables ignores the extra fields).
-        //   - PAGINATION ON:  the view (serverSide:true) sends draw/start/length, so we return
-        //     one page plus the { draw, recordsTotal, recordsFiltered, data } DataTables needs.
+        // Returns the whole filtered employee list as { data: [...] }. The virtual-scroll view
+        // loads this once and does its windowing and search client-side.
         //
         // Redis (when enabled) caches the serialized body, so a repeat request skips the SQL
         // query AND the JSON serialization entirely.
-        [HttpGet]
+        [HttpGet("/api/employees")]
         public IActionResult GetEmployees(string searchName, int? searchId, DateTime? startDate,
-            DateTime? endDate, int? draw, int? start, int? length, bool cache = true)
+            DateTime? endDate, bool cache = true)
         {
-            // The client only sends a positive "length" in server-side (paginated) mode.
-            bool paginate = length.HasValue && length.Value > 0;
-
             // === REDIS CACHING ===
             // Compute the key (and touch Redis) ONLY when caching is on, so ?cache=false is a
             // genuine bypass that never contacts Redis at all.
@@ -218,58 +204,51 @@ namespace EmployeeManagement.Controllers
             string? cacheKey = null;
             if (useCache)
             {
-                cacheKey = $"employees:v{GetCacheVersion()}:p{paginate}:{start}:{length}:" +
-                           $"{searchName}:{searchId}:{startDate:o}:{endDate:o}";
+                cacheKey = $"employees:v{GetCacheVersion()}:{searchName}:{searchId}:{startDate:o}:{endDate:o}";
                 var cached = CacheGet(cacheKey);
                 if (cached != null)
-                    return Content(WithDraw(cached, draw ?? 0), "application/json"); // HIT: no SQL, no serialize
+                    return Content(cached, "application/json"); // HIT: no SQL, no serialize
             }
             // === END REDIS CACHING ===
 
-            // AsQueryable allows us to dynamically build the SQL query before executing it
-            var query = _context.Employees.AsQueryable();
+            // AsQueryable lets us build the SQL query dynamically before executing it. Stable
+            // ordering by name keeps the rendered list deterministic across requests.
+            var data = ApplyFilters(_context.Employees.AsQueryable(),
+                                    searchName, searchId, startDate, endDate)
+                       .OrderBy(e => e.FullName)
+                       .ToList();
 
-            // recordsTotal (unfiltered count) is only needed by DataTables in paginated mode.
-            int recordsTotal = paginate ? query.Count() : 0;
-
-            query = ApplyFilters(query, searchName, searchId, startDate, endDate);
-
-            int recordsFiltered = paginate ? query.Count() : 0;
-
-            // Stable ordering so paging is deterministic across requests.
-            query = query.OrderBy(e => e.FullName);
-
-            // In paginated mode pull only the requested window; otherwise the full list.
-            var data = paginate
-                ? query.Skip(start ?? 0).Take(length!.Value).ToList()
-                : query.ToList();
-
-            if (!paginate)
-            {
-                recordsTotal = recordsFiltered = data.Count;
-            }
-
-            // Body WITHOUT draw (draw is per-request and must never be cached — see WithDraw).
-            string inner = System.Text.Json.JsonSerializer.Serialize(
-                new { recordsTotal, recordsFiltered, data }, JsonOpts);
+            string json = System.Text.Json.JsonSerializer.Serialize(new { data }, JsonOpts);
 
             // === REDIS CACHING ===
             if (useCache)
             {
-                CacheSet(cacheKey!, inner, new DistributedCacheEntryOptions
+                CacheSet(cacheKey!, json, new DistributedCacheEntryOptions
                 {
                     AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5)
                 });
             }
             // === END REDIS CACHING ===
 
-            return Content(WithDraw(inner, draw ?? 0), "application/json");
+            return Content(json, "application/json");
+        }
+
+        // Returns a single employee by id, or 404 if none exists. This is the resource that
+        // SaveEmployee's 201 Created Location header points at.
+        [HttpGet("/api/employees/{id:int}")]
+        public IActionResult GetEmployee(int id)
+        {
+            var employee = _context.Employees.Find(id);
+            if (employee == null)
+                return NotFound(new { message = $"No employee found with id {id}." });
+
+            return Ok(employee); // MVC serializes with camelCase (web defaults), same as the list endpoints
         }
 
         // Lazy-grouping endpoint #1: the department folders. Returns just one row per
         // department with its (filtered) headcount — a cheap GROUP BY — so the directory's
         // initial load is a few hundred bytes instead of the whole 50k-row table.
-        [HttpGet]
+        [HttpGet("/api/departments")]
         public IActionResult GetDepartmentSummary(string searchName, int? searchId,
             DateTime? startDate, DateTime? endDate, bool cache = true)
         {
@@ -310,7 +289,9 @@ namespace EmployeeManagement.Controllers
         // OPTION 2 (in-department paging): when start/length are supplied, returns just that page
         // plus the filtered total, so a 10k-person department renders 25 rows at a time instead
         // of all at once. With no length, it still returns the whole department (paging off).
-        [HttpGet]
+        // {department} binds from the route (e.g. /api/departments/Marketing/employees); the
+        // search/paging parameters still bind from the query string.
+        [HttpGet("/api/departments/{department}/employees")]
         public IActionResult GetEmployeesByDepartment(string department, string searchName,
             int? searchId, DateTime? startDate, DateTime? endDate, int? start, int? length, bool cache = true)
         {
@@ -351,8 +332,11 @@ namespace EmployeeManagement.Controllers
             return Content(json, "application/json");
         }
 
-        // AJAX Action to handle the form submission with custom validation
-        [HttpPost]
+        // Creates a single employee. Status codes carry the outcome (REST):
+        //   201 Created  – saved (Location header points at the new resource)
+        //   400 BadRequest – validation failed (phone/model rules)
+        //   409 Conflict   – phone already registered / DB uniqueness rejection
+        [HttpPost("/api/employees")]
         public IActionResult SaveEmployee(Employee model)
         {
             if (!string.IsNullOrEmpty(model.Address))
@@ -366,7 +350,7 @@ namespace EmployeeManagement.Controllers
                 out var normalizedCode, out var normalizedNational);
             if (phoneError != null)
             {
-                return Json(new { success = false, message = phoneError });
+                return BadRequest(new { message = phoneError });
             }
 
             // Store the canonical "+CC NNN..." form (trunk zeros stripped, correct length),
@@ -386,7 +370,7 @@ namespace EmployeeManagement.Controllers
                     bool phoneExists = _context.Employees.Any(e => e.PhoneNumber == fullPhoneNumber);
                     if (phoneExists)
                     {
-                        return Json(new { success = false, message = "This phone number is already registered to another employee." });
+                        return Conflict(new { message = "This phone number is already registered to another employee." });
                     }
 
                     _context.Employees.Add(model);
@@ -394,12 +378,14 @@ namespace EmployeeManagement.Controllers
 
                     BumpCacheVersion(); // === REDIS CACHING === invalidate cached lists after a write
 
-                    return Json(new { success = true, message = "Employee details saved successfully!" });
+                    // 201 Created with a Location header pointing at GET /api/employees/{id}.
+                    return CreatedAtAction(nameof(GetEmployee), new { id = model.Id },
+                        new { message = "Employee details saved successfully!" });
                 }
                 catch (Microsoft.EntityFrameworkCore.DbUpdateException)
                 {
                     // Catches any database-level rejection (e.g. the unique phone index).
-                    return Json(new { success = false, message = "The database rejected the save. Please verify all details are valid and the phone number is unique." });
+                    return Conflict(new { message = "The database rejected the save. Please verify all details are valid and the phone number is unique." });
                 }
             }
 
@@ -411,16 +397,20 @@ namespace EmployeeManagement.Controllers
             // Combine them with HTML line breaks so swal displays them nicely
             string combinedErrors = string.Join("<br/>", errorMessages);
 
-            return Json(new { success = false, message = combinedErrors });
+            return BadRequest(new { message = combinedErrors });
         }
 
-        [HttpPost]
+        // Bulk-creates employees. Status codes carry the outcome (REST):
+        //   201 Created    – every row saved
+        //   400 BadRequest – empty payload, or one or more rows failed validation/duplicate checks
+        //   409 Conflict   – DB uniqueness rejection at save time
+        [HttpPost("/api/employees/batch")]
         public IActionResult SaveMultipleEmployees([FromBody] List<Employee> employees)
         {
             // 1. Check if the array is empty
             if (employees == null || employees.Count == 0)
             {
-                return Json(new { success = false, message = "No data provided to save." });
+                return BadRequest(new { message = "No data provided to save." });
             }
 
             var errors = new List<string>();
@@ -481,7 +471,7 @@ namespace EmployeeManagement.Controllers
 
             if (errors.Any())
             {
-                return Json(new { success = false, message = string.Join("<br/>", errors.Distinct()) });
+                return BadRequest(new { message = string.Join("<br/>", errors.Distinct()) });
             }
 
             try
@@ -492,11 +482,12 @@ namespace EmployeeManagement.Controllers
 
                 BumpCacheVersion(); // === REDIS CACHING === invalidate cached lists after a write
 
-                return Json(new { success = true, message = $"{employees.Count} employees saved successfully!" });
+                // 201 Created: a bulk create, so no single Location header.
+                return StatusCode(201, new { message = $"{employees.Count} employees saved successfully!" });
             }
             catch (Microsoft.EntityFrameworkCore.DbUpdateException)
             {
-                return Json(new { success = false, message = "The database rejected the save. Please verify all details are valid and every phone number is unique." });
+                return Conflict(new { message = "The database rejected the save. Please verify all details are valid and every phone number is unique." });
             }
         }
     }

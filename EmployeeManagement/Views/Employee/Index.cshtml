@@ -11,9 +11,6 @@
 
     <!-- Bootstrap 5 CSS for styling and centralizing -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
-    <!-- DataTables CSS -->
-    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css" />
-    <link rel="stylesheet" href="https://cdn.datatables.net/rowgroup/1.4.1/css/rowGroup.dataTables.min.css" />
     <!-- jQuery UI-->
     <link rel="stylesheet" href="https://code.jquery.com/ui/1.13.2/themes/base/jquery-ui.css">
 
@@ -137,7 +134,7 @@
                 <h4 class="mb-0">Employee Directory</h4>
             </div>
             <div class="card-body">
-                <!-- Lazy mode renders collapsible department folders here; eager/flat modes use the table below. -->
+                <!-- Lazy mode renders collapsible department folders here. -->
                 <div id="deptAccordion"></div>
 
                 <!-- Virtual-scroll mode renders here: a fixed column header above a windowed viewport
@@ -157,20 +154,6 @@
                         <div id="content"></div>
                     </div>
                 </div>
-
-                <table id="EmployeeTable" class="table table-striped table-bordered w-100">
-                    <thead>
-                        <tr>
-                            <th>Full Name</th>
-                            <th>Phone</th>
-                            <th>Age</th>
-                            <th>Gender</th>
-                            <th>Department</th>
-                            <th>Admission Date</th>
-                            <th>Status</th>
-                        </tr>
-                    </thead>
-                </table>
             </div>
         </div>
     </div>
@@ -182,9 +165,6 @@
     <script src="https://code.jquery.com/ui/1.13.2/jquery-ui.min.js"></script>
     <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <!-- DataTables JS -->
-    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
-    <script src="https://cdn.datatables.net/rowgroup/1.4.1/js/dataTables.rowGroup.min.js"></script>
     <!-- SweetAlert2 -->
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <!-- libphonenumber-js (max bundle = full metadata, so getType() works) for client-side,
@@ -199,12 +179,9 @@
 
         // === DIRECTORY MODE SWITCH ===
         // How the Employee Directory renders. Hard switch: change the default below.
-        // Live switch (no rebuild): load the page with ?mode=lazy | ?mode=eager | ?mode=flat.
+        // Live switch (no rebuild): load the page with ?mode=lazy.
         //   lazy            – collapsible department folders; a department's employees load
         //                     ONLY when its folder is expanded. Tiny initial render, fast.
-        //   eager           – original rowGroup table: every row fetched & rendered hidden.
-        //                     The slow "before" (kept for the demo comparison).
-        //   flat            – server-side paginated table, 25 rows per page, no grouping.
         //   virtual (default)– virtual scrolling (windowing): fetch the whole filtered list once,
         //                     but only ever keep the rows visible in the viewport in the DOM. As
         //                     you scroll, that small window is recycled, so scrolling stays smooth
@@ -398,11 +375,9 @@
             return errors;
         }
 
-        // 2. Initialize the Employee Directory (lazy / eager / flat — see DIRECTORY_MODE).
-        var expandedGroups = {};    // (eager mode) which departments are expanded; default collapsed
-        var table = null;           // DataTable instance in eager/flat modes; stays null in lazy mode
+        // 2. Initialize the Employee Directory (lazy / virtual — see DIRECTORY_MODE).
 
-        // Shared dd/mm/yyyy formatter, used by the DataTable date column AND the lazy folder tables.
+        // Shared dd/mm/yyyy formatter, used by the virtual rows AND the lazy folder tables.
         function formatDate(data) {
         if (!data) return "";
         var d = new Date(data);
@@ -423,8 +398,7 @@
         // Re-render the directory after a search / clear / save, whichever mode is active.
         function refreshDirectory() {
         if (DIRECTORY_MODE === 'lazy') loadDeptSummary();
-        else if (DIRECTORY_MODE === 'virtual') loadVirtual();
-        else if (table) table.ajax.reload();
+        else loadVirtual();
         }
 
         // ---- LAZY MODE HELPERS ----
@@ -472,8 +446,8 @@
         var $body = $folder.find('.dept-body');
         var dept = $folder.data('dept');
         $body.html('<div class="text-muted p-2">Loading…</div>');
-        var params = $.extend({ department: dept, start: start, length: DEPT_PAGE_SIZE }, collectFilters());
-        $.getJSON('/Employee/GetEmployeesByDepartment', params)
+        var params = $.extend({ start: start, length: DEPT_PAGE_SIZE }, collectFilters());
+        $.getJSON('/api/departments/' + encodeURIComponent(dept) + '/employees', params)
         .done(function (resp) {
         var total = (resp.total != null) ? resp.total : (resp.data ? resp.data.length : 0);
         $body.html(buildDeptTable(resp.data) + buildPager(start, total));
@@ -490,7 +464,7 @@
         var $body = $folder.find('.dept-body');
         var dept = $folder.data('dept');
         $body.html('<div class="text-muted p-2">Loading…</div>');
-        $.getJSON('/Employee/GetEmployeesByDepartment', $.extend({ department: dept }, collectFilters()))
+        $.getJSON('/api/departments/' + encodeURIComponent(dept) + '/employees', collectFilters())
         .done(function (resp) {
         $body.html(buildDeptTable(resp.data));
         $folder.data('loaded', true);
@@ -513,7 +487,7 @@
         // Fetches the (filtered) per-department headcounts and renders one collapsed folder each.
         function loadDeptSummary() {
         var $acc = $('#deptAccordion').html('<div class="text-muted p-3">Loading departments…</div>');
-        $.getJSON('/Employee/GetDepartmentSummary', collectFilters())
+        $.getJSON('/api/departments', collectFilters())
         .done(function (list) {
         $acc.empty();
         if (!list || !list.length) {
@@ -621,7 +595,7 @@
         // because every row is already here in allEmployees.
         function loadVirtual() {
         $('#content').css('transform', 'none').html('<div class="text-muted p-3">Loading…</div>');
-        $.getJSON('/Employee/GetEmployees', { cache: USE_CACHE }) // no search params: load everything
+        $.getJSON('/api/employees', { cache: USE_CACHE }) // no search params: load everything
         .done(function (resp) {
         allEmployees = (resp && resp.data) ? resp.data : [];
         applyClientFilter(); // render with whatever is currently in the search panel
@@ -658,94 +632,26 @@
 
         // ---- MODE INITIALISATION ----
         if (DIRECTORY_MODE === 'lazy') {
-        $('#EmployeeTable').hide();
         $('#deptAccordion').show();
         loadDeptSummary();
-        } else if (DIRECTORY_MODE === 'virtual') {
-        $('#EmployeeTable').hide();
+        } else {
+        // virtual (default)
         $('#deptAccordion').hide();
         $('#virtualWrap').show();
         loadVirtual();
-        } else {
-        $('#deptAccordion').hide();
-
-        // Department column: a normal column in flat mode; hidden in eager mode (rowGroup reads it).
-        var columns = [
-        { "data": "fullName" },
-        { "data": "phoneNumber" },
-        { "data": "age" },
-        { "data": "gender" },
-        { "data": "department", "visible": DIRECTORY_MODE === 'flat' },
-        { "data": "admissionDate", "render": function (data) { return formatDate(data); } },
-        { "data": "employmentStatus" }
-        ];
-
-        var tableOptions = {
-        "processing": true,
-        "ajax": {
-        "url": "/Employee/GetEmployees",
-        "type": "GET",
-        "datatype": "json",
-        "data": function (d) {
-        d.searchName = $('#searchName').val();
-        d.searchId = $('#searchId').val();
-        d.startDate = $('#searchStartDate').val();
-        d.endDate = $('#searchEndDate').val();
-        d.cache = USE_CACHE; // forwarded so ?cache=false disables Redis here too
-        }
-        },
-        "columns": columns
-        };
-
-        if (DIRECTORY_MODE === 'flat') {
-        // SERVER-SIDE PAGINATION: one 25-row page at a time. Tiny payload, instant render.
-        tableOptions.serverSide = true;
-        tableOptions.paging = true;
-        tableOptions.info = true;
-        tableOptions.pageLength = 25;
-        tableOptions.lengthMenu = [10, 25, 50, 100];
-        tableOptions.order = [[0, 'asc']];
-        } else {
-        // EAGER GROUPED (original behaviour): pull EVERY row and group by department with
-        // collapsible folders — renders all 50k rows hidden. This is the slow "before".
-        tableOptions.paging = false;
-        tableOptions.info = false;
-        tableOptions.orderFixed = [4, 'asc'];
-        tableOptions.order = [[0, 'asc']];
-        tableOptions.rowGroup = {
-        dataSrc: 'department',
-        startRender: function (rows, group) {
-        var isExpanded = !!expandedGroups[group];
-        rows.nodes().each(function (r) { r.style.display = isExpanded ? '' : 'none'; });
-        var toggleText = isExpanded ? '➖ ' : '➕ ';
-        return $('<span/>')
-        .attr('data-name', group)
-        .css({
-        'cursor': 'pointer',
-        'color': '#0d6efd',
-        'font-weight': 'bold',
-        'display': 'block',
-        'text-align': 'left'
-        })
-        .text(toggleText + group + ' (' + rows.count() + ' Employees)');
-        }
-        };
-        }
-
-        table = $('#EmployeeTable').DataTable(tableOptions);
         }
 
 
         // Live search: the directory updates as the user types — there is no Search button.
         // In virtual mode this filters the already-loaded data in memory (instant, no request);
-        // in the other modes it re-queries the server (debounced so we don't fire per keystroke).
+        // in lazy mode it re-queries the server (debounced so we don't fire per keystroke).
         var _searchDebounce = null;
         function triggerSearch() {
-        if (DIRECTORY_MODE === 'virtual') {
-        applyClientFilter();                 // in-memory, zero network
-        } else {
+        if (DIRECTORY_MODE === 'lazy') {
         clearTimeout(_searchDebounce);
         _searchDebounce = setTimeout(refreshDirectory, 200);
+        } else {
+        applyClientFilter();                 // virtual: in-memory, zero network
         }
         }
 
@@ -763,15 +669,6 @@
         // Any change to a search field updates the directory live (the strip handlers above run first).
         $('#searchName, #searchId, #searchStartDate, #searchEndDate').on('input change', triggerSearch);
 
-
-        $('#EmployeeTable tbody').on('click', 'tr.dtrg-start', function () {
-        if (!table) return; // only relevant in eager (rowGroup) mode
-        var name = $(this).find('span').attr('data-name'); // We find the span we injected above to grab the department name
-        if (name) {
-        expandedGroups[name] = !expandedGroups[name];
-        table.draw(false);
-        }
-        });
 
         // Clear Button: reset all filters, then refresh live (search itself is automatic now).
         $('#btnClear').on('click', function () {
@@ -995,26 +892,26 @@
         });
 
         $.ajax({
-        url: '/Employee/SaveMultipleEmployees',
+        url: '/api/employees/batch',
         type: 'POST',
         contentType: 'application/json', // CRITICAL for lists
         data: JSON.stringify(employeesArray),
+        // Outcome is read from the HTTP status code (REST): a 2xx runs success,
+        // any 4xx/5xx runs error and we surface the server's message from the body.
         success: function (response) {
-        if (response.success) {
         Swal.fire('Saved!', response.message, 'success');
 
         // Reset the grid back to 1 empty row
         $('#bulkEntryTable tbody').empty();
         $('#bulkEntryTable tbody').append(getNewRowHtml());
 
-        // Refresh the directory (folders in lazy mode, DataTable otherwise)
+        // Refresh the directory (folders in lazy mode, windowed list in virtual mode)
         refreshDirectory();
-        } else {
-        Swal.fire({ title: 'Validation Error!', html: response.message, icon: 'error' });
-        }
         },
-        error: function () {
-        Swal.fire('Error!', 'An error occurred connecting to the database.', 'error');
+        error: function (jqXHR) {
+        var msg = (jqXHR.responseJSON && jqXHR.responseJSON.message)
+        || 'An error occurred connecting to the database.';
+        Swal.fire({ title: 'Could not save', html: msg, icon: 'error' });
         }
         });
         }

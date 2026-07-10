@@ -39,31 +39,30 @@ Instead of writing raw SQL queries (like `INSERT INTO Employees...`) inside the 
 ## 4. Authentication & Security (JWT)
 The application secures the web pages and API endpoints using JSON Web Tokens (JWT).
 
-* **Cookie-Based JWT**: Instead of manually attaching an `Authorization` header to every AJAX request, the JWT is stored in an `access_token` cookie. This allows both direct browser page loads (like the `Index` view) and background DataTables AJAX calls to authenticate automatically.
+* **`AuthController.cs`**: The entry point for authentication. It provides endpoints for `Login`, `Logout`, and token `Refresh`. It verifies credentials and issues the JWTs (both access and refresh tokens).
+* **Cookie-Based JWT**: Instead of manually attaching an `Authorization` header to every AJAX request, the JWT is stored in an `access_token` cookie. This allows both direct browser page loads (like the `Index` view) and background AJAX calls to authenticate automatically.
 * **`[Authorize]` Attribute**: The `EmployeeController` is guarded by this attribute, meaning no data or HTML is served without a valid token.
 * **Silent Refresh (`OnChallenge`)**: Configured in `Program.cs`. If an AJAX call encounters an expired token, it receives a standard HTTP 401. However, if a user navigates to a page with an expired token in a regular browser window, they are redirected to a silent refresh page to seamlessly obtain a new token.
 
 ---
 
 ## 5. The Frontend (HTML & JavaScript in `Index.cshtml`)
-The user interface combines standard HTML with Bootstrap for styling, DataTables for the data grid, and SweetAlert2 for notifications.
+The user interface combines standard HTML with Bootstrap for styling, a custom virtual-scroll grid for the directory, and SweetAlert2 for notifications.
 
 * **The HTML Form**: Utilizes standard inputs with built-in HTML5 validation (like `minlength="5"` and `required`). This provides the first line of defense, allowing the browser to stop the user before making a server request.
-* **DataTables (`$('#EmployeeTable').DataTable(...)`)**: A jQuery plugin that converts a standard HTML table into an interactive grid. The `"ajax"` configuration instructs the table to call the Controller's `GetEmployees()` method to dynamically fetch data.
+* **The Directory grid**: Rendered client-side from the JSON returned by `GetEmployees()` (virtual mode) or `GetEmployeesByDepartment()` (lazy mode). Virtual mode fetches the full list once and windows it in the DOM; lazy mode loads a department's rows only when its folder is expanded. See the "Directory rendering modes" section below.
 * **jQuery AJAX (`$.ajax(...)`)**: Handles the asynchronous form submission:
     1.  `$('#EmployeeForm').serialize()` gathers all input field values into a URL-encoded string.
     2.  `type: 'POST'` sends that payload to the `SaveEmployee` Controller action in the background, preventing a full page reload.
-    3.  `success: function(response)` listens for the Controller's JSON response. If successful, it triggers a green SweetAlert, resets the form, and calls `table.ajax.reload()` to update the grid with the new database entry seamlessly.
+    3.  `success: function(response)` listens for the Controller's JSON response. If successful, it triggers a green SweetAlert, resets the form, and calls `refreshDirectory()` to update the grid with the new database entry seamlessly.
 
 
-    To enable/disable server-side pagination, set "const ENABLE_PAGINATION = false" or "const ENABLE_DEPT_PAGING = false" in index.cshtml (View)
+    To enable/disable in-department paging, set "const ENABLE_DEPT_PAGING = false" in index.cshtml (View)
     To enable/disable Redis, set "EnableRedisCache = false" in EmployeeController.cs (Controller) (+ restart)
 
 ### Directory rendering modes (`?mode=` in the URL, default `virtual`)
-The Employee Directory can render four ways; switch live with a query-string parameter:
+The Employee Directory can render two ways; switch live with a query-string parameter:
 * **`lazy`** – collapsible department folders; a department's rows load only when its folder is expanded.
-* **`eager`** – the original grouped table that fetches and renders every row (kept as the slow "before").
-* **`flat`** – a server-side paginated table, 25 rows per page.
 * **`virtual`** (default) – **virtual scrolling (windowing)**: the whole filtered list is fetched once, but only the rows currently
   visible in the viewport are kept in the DOM. As you scroll, that small window of rows is recycled, so scrolling stays
   smooth on desktop and mobile regardless of how many thousands of records exist. Implemented in `Index.cshtml` with a

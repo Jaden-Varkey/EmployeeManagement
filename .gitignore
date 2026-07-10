@@ -7,7 +7,7 @@
 *.user
 *.suo
 
-# Claude Code local files
+# Local tooling files
 .claude/
 
 # Rider
